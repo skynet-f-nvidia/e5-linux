@@ -127,7 +127,16 @@ make defconfig >/dev/null
 grep -E "^CONFIG_(GCC_VERSION|LIBC_VERSION|TARGET_ARCH_PACKAGES)=|^(# )?CONFIG_MODEMMANAGER" .config
 if [ ! -f staging_dir/.e5-toolchain-ok ]; then
     echo "== host tools and toolchain (first run)"
-    make tools/install toolchain/install -j"$JOBS" >/build/log 2>&1 || { tail -60 /build/log; exit 1; }
+    if ! make tools/install toolchain/install -j"$JOBS" >/build/log 2>&1; then
+        echo "== host tools build failed; retrying once (downloads and parallel builds flake)"
+        if ! make tools/install toolchain/install -j"$JOBS" >/build/log 2>&1; then
+            echo "== error region:"
+            grep -nE -i "error|no such file|could not|timed out|unable|refused|hash mismatch" /build/log | tail -40
+            echo "== tail -150:"
+            tail -150 /build/log
+            exit 1
+        fi
+    fi
     touch staging_dir/.e5-toolchain-ok
 fi
 # the kernel, for the kmod packages the dependencies ask for (ppp wants
