@@ -259,31 +259,33 @@ mkdir -p /var/lock /var/run /tmp
 # "wget: exited with error 4" and leaves that package out), which failed the
 # whole image build; every network apk operation is retried instead.
 apk_retry() {
-    for _try in 1 2 3 4 5; do
+    _n=0
+    for _w in 5 10 20 30 45 60 60 60 60 60; do
+        _n=$((_n + 1))
         if apk "$@"; then return 0; fi
-        echo "== apk $* failed (attempt $_try), retrying"
-        sleep 5
+        echo "== apk $* failed (attempt $_n), retrying in $_w seconds"
+        sleep $_w
     done
-    echo "== apk $* failed after 5 attempts" >&2
+    echo "== apk $* failed after $_n attempts" >&2
     return 1
 }
 apk_retry update >/dev/null
 # ModemManager first, from its local file (unsigned): its release is above the
 # repository one, so what depends on it takes this one and apk upgrade keeps it
-apk_retry apk add --allow-untrusted /in/apk/modemmanager-1*.apk /in/apk/modemmanager-rpcd-*.apk >/dev/null
+apk_retry add --allow-untrusted /in/apk/modemmanager-1*.apk /in/apk/modemmanager-rpcd-*.apk >/dev/null
 # BlueZ the same way, patched (openwrt/build-bluez.sh: the SDP MTU headphones need)
-apk_retry apk add --allow-untrusted /in/apk/bluez-libs-*.apk /in/apk/bluez-daemon-*.apk /in/apk/bluez-utils-5*.apk >/dev/null
+apk_retry add --allow-untrusted /in/apk/bluez-libs-*.apk /in/apk/bluez-daemon-*.apk /in/apk/bluez-utils-5*.apk >/dev/null
 # (dbus-utils: dbus-monitor, for e5-sms-notify)
 # (alsa-utils: aplay and amixer for the speaker, e5-audio-dsp and e5-volume)
 # (curl: the webhook of the SMS forward, /usr/libexec/e5-sms)
-apk_retry apk add wpad-basic-mbedtls wifi-scripts iwinfo iw ip-full bash mount-utils luci-proto-modemmanager \
+apk_retry add wpad-basic-mbedtls wifi-scripts iwinfo iw ip-full bash mount-utils luci-proto-modemmanager \
     dbus-utils alsa-utils curl >/dev/null
 # Bluetooth audio: PulseAudio built with BlueZ (the -avahi variant carries
 # the bluetooth modules), run by /etc/init.d/e5-pulseaudio, not by its own
 # init script (which forbids loading the modules a connecting device needs)
-apk_retry apk add pulseaudio-daemon-avahi pulseaudio-tools >/dev/null
+apk_retry add pulseaudio-daemon-avahi pulseaudio-tools >/dev/null
 # Reuse the tested Debian hostless FE_ST_VOICE backend for cellular audio.
-apk_retry apk add python3 >/dev/null
+apk_retry add python3 >/dev/null
 # attended sysupgrade flashes whole-disk images: that would overwrite the eMMC
 # (removed before the translations below, whose package for it would hold it)
 apk del luci-app-attendedsysupgrade attendedsysupgrade-common owut >/dev/null 2>&1 || true
@@ -292,12 +294,12 @@ if grep -q "^P:luci-app-attendedsysupgrade$" /lib/apk/db/installed; then
 fi
 # LuCI in Chinese: the base and each installed application'"'"'s translation
 # (the language is chosen at first boot, 93-e5-luci)
-apk_retry apk add luci-i18n-base-zh-cn >/dev/null
+apk_retry add luci-i18n-base-zh-cn >/dev/null
 for p in $(sed -En "s/^P:luci-(app|proto)-//p" /lib/apk/db/installed); do
     apk_retry add "luci-i18n-$p-zh-cn" >/dev/null 2>&1 && echo "zh-cn: luci-i18n-$p-zh-cn"
 done
 # the Argon theme (its release'"'"'s packages, unsigned)
-apk_retry apk add --allow-untrusted $EXTRA_LIST >/dev/null
+apk_retry add --allow-untrusted $EXTRA_LIST >/dev/null
 echo "argon: $(sed -n "/^P:luci-theme-argon$/{n;s/^V://p}" /lib/apk/db/installed)"
 # the info screen'"'"'s packages (cage, cog, Mesa, ...), when there is one
 if [ -f /in/infoscreen/packages.txt ]; then
@@ -310,10 +312,15 @@ if [ -f /in/infoscreen/packages.txt ]; then
     grep -v "^#" /in/infoscreen/packages.txt > /tmp/pk
     if [ -s /tmp/tp ]; then grep -vxF -f /tmp/tp /tmp/pk > /tmp/pk2 || true; mv /tmp/pk2 /tmp/pk; fi
     [ -s /tmp/pk ] || { echo "no info screen packages to install" >&2; exit 1; }
-    apk_retry apk add $(cat /tmp/pk) >/dev/null
+    if ! apk_retry add $(cat /tmp/pk) >/dev/null; then
+        # the CDN drops large downloads when several are in flight at once;
+        # fetched alone each one goes through
+        echo "== the parallel install failed; one package at a time"
+        for _p in $(cat /tmp/pk); do apk_retry add "$_p" >/dev/null || exit 1; done
+    fi
     echo "info screen packages: $(wc -l < /tmp/pk)"
     if [ -s /tmp/tp ]; then
-        apk_retry apk add $(cat /in/transplant/deps) >/dev/null
+        apk_retry add $(cat /in/transplant/deps) >/dev/null
         cp -a /in/transplant/root/. /
         cat /in/transplant/installed >> /lib/apk/db/installed
         cat /in/transplant/names >> /etc/apk/world
