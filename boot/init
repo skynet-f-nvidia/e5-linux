@@ -382,7 +382,9 @@ echo MSFT100 > "$g/os_desc/qw_sign"
 echo RNDIS   > "$g/functions/rndis.usb0/os_desc/interface.rndis/compatible_id"
 echo 5162001 > "$g/functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id"
 ln -s "$g/configs/c.1" "$g/os_desc/c.1"
-ifconfig usb1 up 2>/dev/null          # the RNDIS netdev (the only function)
+# RNDIS is the only function, so u_ether gives its netdev the first free
+# name, usb0 (it was usb1 while ncm.usb0 was registered before it).
+ifconfig usb0 up 2>/dev/null
 persist
 
 # ------------------------------------------------------- root filesystem

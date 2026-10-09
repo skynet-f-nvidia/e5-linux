@@ -11,21 +11,20 @@
 # what the CDC interface codes used to allow -- gets no driver at all on a
 # Windows host: no adapter, no DHCP, while from this side the link looks
 # healthy (enumerated, configured, netdev up with carrier: the composite core
-# calls set_alt() by itself).  Linux hosts are unaffected: rndis_host matches
-# the CDC interface codes, and this netdev is an ordinary br-lan port.
-# (NCM and the CDC-ACM console were dropped: Windows never matched the NCM
-# one, and the ACM one only matters as a serial console on a Linux host.)
+# calls set_alt() by itself).  Measured: this shape links in ~3-8 s on every
+# boot; the 0xEF/0x02/0x01 composite with ncm+acm beside it never did.  Linux
+# hosts see the same netdev either way (rndis_host); NCM and the CDC-ACM
+# console are gone -- Windows never matched the NCM function, and the console
+# only mattered on a Linux host.
+#
+# The function's netdev must keep the name the rest of the system knows it by
+# (usb1: br-lan's port, the firewall zones, the hotplug script).  With ncm
+# gone it would be the first free u_ether name, usb0, so ifname is set here
+# before the bind -- boot/init does the same for the first enumeration.
 #
 # The Microsoft OS descriptors are published as well.  Windows asks a device
-# instance for them once, so they cannot be relied on after a reboot, but they
-# are what the optional "USB RNDIS 6 Adapter" install path matches.
-#
-# boot/init sets all of this before the gadget's first enumeration.  This
-# covers a gadget that came up from an older initramfs -- or one left in the
-# old shape by an update -- so the values are written, and the gadget
-# re-enumerated, only when they are actually wrong.  The revision is the one
-# Windows enrolled together with this shape; keep it in step with boot/init
-# (E5_USB_REV overrides it).
+# instance for them once, so they cannot be relied on for a rebooted device,
+# but they are what the optional "USB RNDIS 6 Adapter" install path matches.
 set -u
 G=/sys/kernel/config/usb_gadget/linux
 [ -d "$G" ] || exit 0
@@ -47,6 +46,7 @@ if [ -d "$O" ]; then
     same "$F/class"    ef
     same "$F/subclass" 04
     same "$F/protocol" 01
+    same "$F/ifname"   usb1
     same "$G/bcdDevice" "$REV"
     same "$O/compatible_id"     RNDIS
     same "$O/sub_compatible_id" 5162001
@@ -69,6 +69,8 @@ echo "gadget stale (bound=${cur:-no}) -- reconfigure and re-enumerate"
 [ -n "$cur" ] && echo "" > "$G/UDC"          # descriptors only change while unbound
 if [ -d "$O" ]; then
     rm -f "$C/f1" "$C/f2"                    # RNDIS only (older images had ncm/acm too)
+    # the netdev name only changes while the function is not bound
+    echo usb1 > "$F/ifname" 2>/dev/null
     echo 0xEF > "$G/bDeviceClass"
     echo 0x04 > "$G/bDeviceSubClass"
     echo 0x01 > "$G/bDeviceProtocol"
@@ -91,4 +93,4 @@ if [ -d "$O" ]; then
 fi
 echo "$UDC" > "$G/UDC"
 sleep 2
-echo "UDC=$(cat "$G/UDC") class=$(cat "$G/bDeviceClass")/$(cat "$F/class") os_desc=$(cat "$G/os_desc/use" 2>/dev/null)"
+echo "UDC=$(cat "$G/UDC") class=$(cat "$G/bDeviceClass")/$(cat "$F/class") ifname=$(cat "$F/ifname" 2>/dev/null) os_desc=$(cat "$G/os_desc/use" 2>/dev/null)"
