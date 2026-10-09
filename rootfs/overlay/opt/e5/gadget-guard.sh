@@ -3,33 +3,37 @@
 # serial console at once:
 #
 #  * if something leaves it unbound, bind it to the UDC again;
-#  * present the RNDIS function the way a Windows host can match it.
+#  * present the RNDIS function the way a Windows host matches it.
 #
-# That second job is what makes the USB port useful on Windows.  Windows 10
-# and 11 no longer match RNDIS by the CDC interface codes, and the Microsoft
-# OS descriptor ("WCID") route is answered at most once per device instance --
-# a device that is ever seen without it is never asked for it again, so it
-# cannot be relied on after a reboot.  What is deterministic is the class
-# match: bDeviceClass 0xEF/0x02/0x01 declares a multi-interface function
-# device (the IADs then decide which driver matches each function), and the
-# RNDIS function's own IAD is set to 0xEF/0x04/0x01, which is exactly what
-# Rndismp.inf is documented to bind to ("Miscellaneous (EFh), supports
-# SubClass 04h and Protocol 01h").  The MS OS descriptors are published as
-# well: harmless here, and they are what the optional "USB RNDIS 6 Adapter"
-# install path uses.
+# The board's USB port is RNDIS-only on purpose: Windows 10/11 bind their
+# in-box Rndismp driver to a device of class 0xEF/0x04/0x01 (miscellaneous,
+# subclass 04, protocol 01), and a gadget whose device class stays 00/00/00 --
+# what the CDC interface codes used to allow -- gets no driver at all on a
+# Windows host: no adapter, no DHCP, while from this side the link looks
+# healthy (enumerated, configured, netdev up with carrier: the composite core
+# calls set_alt() by itself).  Linux hosts are unaffected: rndis_host matches
+# the CDC interface codes, and this netdev is an ordinary br-lan port.
+# (NCM and the CDC-ACM console were dropped: Windows never matched the NCM
+# one, and the ACM one only matters as a serial console on a Linux host.)
+#
+# The Microsoft OS descriptors are published as well.  Windows asks a device
+# instance for them once, so they cannot be relied on after a reboot, but they
+# are what the optional "USB RNDIS 6 Adapter" install path matches.
 #
 # boot/init sets all of this before the gadget's first enumeration.  This
-# covers a gadget that came up from an older initramfs, so the values are
-# written -- and the gadget re-enumerated -- only when they are actually
-# wrong.  Nothing here is cached by the host, unlike the WCID, so repeating
-# it after every boot is enough.
+# covers a gadget that came up from an older initramfs -- or one left in the
+# old shape by an update -- so the values are written, and the gadget
+# re-enumerated, only when they are actually wrong.  The revision is the one
+# Windows enrolled together with this shape; keep it in step with boot/init
+# (E5_USB_REV overrides it).
 set -u
 G=/sys/kernel/config/usb_gadget/linux
 [ -d "$G" ] || exit 0
 UDC=${E5_GADGET_UDC:-musb-hdrc.1.auto}
 F=$G/functions/rndis.usb0
 O=$F/os_desc/interface.rndis
-REV=${E5_USB_REV:-0x0620}   # keep in step with boot/init
+C=$G/configs/c.1
+REV=${E5_USB_REV:-0x0620}
 
 stale=
 same() {
@@ -38,7 +42,7 @@ same() {
 }
 if [ -d "$O" ]; then
     same "$G/bDeviceClass"    0xef
-    same "$G/bDeviceSubClass" 0x02
+    same "$G/bDeviceSubClass" 0x04
     same "$G/bDeviceProtocol" 0x01
     same "$F/class"    ef
     same "$F/subclass" 04
@@ -50,6 +54,9 @@ if [ -d "$O" ]; then
     same "$G/os_desc/b_vendor_code" 0xcd
     same "$G/os_desc/qw_sign" MSFT100
     [ -e "$G/os_desc/c.1" ] || stale=yes
+    # RNDIS only: the old NCM and ACM functions must not be in the config
+    [ -e "$C/f1" ] && stale=yes
+    [ -e "$C/f2" ] && stale=yes
 fi
 
 cur=$(cat "$G/UDC" 2>/dev/null)
@@ -61,11 +68,9 @@ fi
 echo "gadget stale (bound=${cur:-no}) -- reconfigure and re-enumerate"
 [ -n "$cur" ] && echo "" > "$G/UDC"          # descriptors only change while unbound
 if [ -d "$O" ]; then
-    # Rndismp.inf's match, with the IAD carrying the RNDIS function class:
-    # 0xEF/0x02/0x01 = multi-interface function device (look at the IADs),
-    # 0xEF/0x04/0x01 = the RNDIS function's IAD.
+    rm -f "$C/f1" "$C/f2"                    # RNDIS only (older images had ncm/acm too)
     echo 0xEF > "$G/bDeviceClass"
-    echo 0x02 > "$G/bDeviceSubClass"
+    echo 0x04 > "$G/bDeviceSubClass"
     echo 0x01 > "$G/bDeviceProtocol"
     echo EF > "$F/class"
     echo 4  > "$F/subclass"
