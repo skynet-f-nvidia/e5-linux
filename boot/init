@@ -338,19 +338,26 @@ ifconfig lo 127.0.0.1 up
 log "stage=usb-configfs"
 mount -t configfs configfs /config 2>/run/configfs.err || log "stage=configfs-fail $(cat /run/configfs.err)"
 g=/config/usb_gadget/linux
-mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409" "$g/functions/ncm.usb0"
+mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409" "$g/functions/ncm.usb0" "$g/functions/rndis.usb0"
 echo 0x0525 > "$g/idVendor"
 echo 0xa4a1 > "$g/idProduct"
 echo 0x0200 > "$g/bcdUSB"
 echo E5LINUX > "$g/strings/0x409/serialnumber"
 echo Unisoc > "$g/strings/0x409/manufacturer"
 echo "E5 Linux USB Ethernet" > "$g/strings/0x409/product"
-echo "Linux NCM + ACM console" > "$g/configs/c.1/strings/0x409/configuration"
+echo "Linux NCM + RNDIS + ACM console" > "$g/configs/c.1/strings/0x409/configuration"
 echo 250 > "$g/configs/c.1/MaxPower"
 echo 02:50:00:00:e5:01 > "$g/functions/ncm.usb0/dev_addr"
 echo 02:50:00:00:e5:02 > "$g/functions/ncm.usb0/host_addr"
 ln -s "$g/functions/ncm.usb0" "$g/configs/c.1/f1"
 mkdir -p "$g/functions/acm.GS0" && ln -s "$g/functions/acm.GS0" "$g/configs/c.1/f2"
+# RNDIS as well, beside NCM: Windows has no driver for NCM and does have one for
+# RNDIS, so the host picks the function it understands.  Separate addresses keep
+# the host's two adapters apart; NCM keeps the dev_addr that br-lan's MAC is
+# read from (10-e5-usb0 takes usb0's address), so an existing ARP entry holds.
+echo 02:50:00:00:e5:03 > "$g/functions/rndis.usb0/dev_addr"
+echo 02:50:00:00:e5:04 > "$g/functions/rndis.usb0/host_addr"
+ln -s "$g/functions/rndis.usb0" "$g/configs/c.1/f3"
 
 log "stage=usb-wait-udc"
 udc=
@@ -373,6 +380,9 @@ if [ -n "$udc" ]; then
     log "stage=usb-bind-done rc=$?"
 fi
 ifconfig usb0 up 2>/dev/null
+# the RNDIS function's own netdev: u_ether hands them out in function order, so
+# the interface after ncm.usb0's usb0 is usb1
+ifconfig usb1 up 2>/dev/null
 persist
 
 # ------------------------------------------------------- root filesystem
