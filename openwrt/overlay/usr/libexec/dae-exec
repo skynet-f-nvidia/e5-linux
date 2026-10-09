@@ -1,0 +1,31 @@
+#!/bin/sh
+# dae builds large BPF maps.  RLIMIT_MEMLOCK on this image is 8 MiB -- procd
+# ignores its limits= key for memlock -- and the kernel's BPF memory allocator
+# refills its per-CPU cache asynchronously, so a load that loses that race fails
+# with ENOMEM and dae exits.  Raise the limit, and retry the run here a few
+# seconds apart, so procd supervises one long-lived process instead of
+# restarting it on procd's much slower schedule.
+ulimit -l unlimited 2>/dev/null || true
+
+case "$1" in
+run)
+	n=0
+	while :; do
+		$BIN "$@" &
+		child=$!
+		trap 'kill -TERM "$child" 2>/dev/null' TERM INT
+		wait "$child"
+		rc=$?
+		trap - TERM INT
+		[ "$rc" = 0 ] && exit 0
+		# a signal from procd (stop or restart) shows up as > 128: pass it on
+		[ "$rc" -gt 128 ] && exit "$rc"
+		n=$((n + 1))
+		[ "$n" -ge 30 ] && exit "$rc"
+		sleep 3
+	done
+	;;
+*)
+	exec "$BIN" "$@"
+	;;
+esac
