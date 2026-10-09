@@ -283,6 +283,11 @@ apk_retry add wpad-basic-mbedtls wifi-scripts iwinfo iw ip-full bash mount-utils
 # SFTP: dropbear is built with DROPBEAR_SFTPSERVER, which execs an external
 # server at /usr/libexec/sftp-server -- the path openssh-sftp-server installs.
 apk_retry add openssh-sftp-server >/dev/null
+# Tailscale: the node and its LuCI panel belong to the image, so an image
+# update does not take the tunnel away.  Its login state lives in
+# /etc/tailscale, which the updater carries over, so the node does not have to
+# be authorised again after an update.
+apk_retry add tailscale luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn >/dev/null
 # Bluetooth audio: PulseAudio built with BlueZ (the -avahi variant carries
 # the bluetooth modules), run by /etc/init.d/e5-pulseaudio, not by its own
 # init script (which forbids loading the modules a connecting device needs)
