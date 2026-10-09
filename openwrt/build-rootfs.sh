@@ -103,6 +103,23 @@ printf "%s\n" "$ARGON_APKS" | while read -r sum f; do
 done
 # (only the pinned ones go in)
 EXTRA_LIST=$(printf "%s\n" "$ARGON_APKS" | awk '{print "/in/extra/" $2}' | tr '\n' ' ')
+# dae and its LuCI panel, from the kenzok8/openwrt-daede releases: they are in
+# no OpenWrt feed, so they are pinned by version and sha256 like the theme.
+DAE_URL=https://github.com/kenzok8/openwrt-daede/releases/download/v2026.09.26
+DAE_APKS="1f0be1c801e14c0e9268197e5f0ca61492b40e78bd44c900078422bd0bfa86f1 dae-2026.09.24-r2-aarch64_generic.apk
+1f6153bcb48e3d7682d2922b4fe8e8fbdf005eb45d674676aee9cec1759c4076 daed-2026.09.24-r2-aarch64_generic.apk
+4d139643f5dd71f83f5ced8c7226b14191860a314dbe7483205047bbbf516abd luci-app-daede-1.15-r6-aarch64_generic.apk"
+printf "%s
+" "$DAE_APKS" | while read -r sum f; do
+    [ -f "$WORK/extra/$f" ] || { curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o "$WORK/extra/$f.part" "$DAE_URL/$f" && mv "$WORK/extra/$f.part" "$WORK/extra/$f"; }
+    got=$(shasum -a 256 "$WORK/extra/$f" 2>/dev/null || sha256sum "$WORK/extra/$f")
+    got=$(echo "$got" | cut -d" " -f1)
+    [ "$got" = "$sum" ] || { echo "checksum mismatch for $f" >&2; rm -f "$WORK/extra/$f"; exit 1; }
+done
+EXTRA_LIST="$EXTRA_LIST $(printf "%s
+" "$DAE_APKS" | awk "{print "/in/extra/" \$2}" | tr "
+" " ")"
+
 
 ls "$OUT"/bluez-daemon-*.apk >/dev/null 2>&1 || {
     echo "no BlueZ package in $OUT -- run openwrt/build-bluez.sh first" >&2; exit 1; }
@@ -308,6 +325,22 @@ for p in $(sed -En "s/^P:luci-(app|proto)-//p" /lib/apk/db/installed); do
 done
 # the Argon theme (its release'"'"'s packages, unsigned)
 apk_retry add --allow-untrusted $EXTRA_LIST >/dev/null
+# dae and daed need local adjustments, done here so the image ships them: dae
+# builds large BPF maps and RLIMIT_MEMLOCK on this image is 8 MiB (procd
+# ignores its limits key for memlock), and the BPF allocator refills
+# asynchronously, so the first load can lose that race and a few more procd
+# restarts are needed.
+{ echo "#!/bin/sh"; echo "ulimit -l unlimited 2>/dev/null || true"; echo "exec /usr/bin/dae "\$@""; } > /usr/libexec/dae-exec
+{ echo "#!/bin/sh"; echo "ulimit -l unlimited 2>/dev/null || true"; echo "exec /usr/bin/daed-guard "\$@""; } > /usr/libexec/daed-exec
+chmod 755 /usr/libexec/dae-exec /usr/libexec/daed-exec
+sed -i "s|^PROG="/usr/bin/dae"|PROG="/usr/libexec/dae-exec"|" /etc/init.d/dae
+sed -i "s|^PROG="/usr/bin/daed-guard"|PROG="/usr/libexec/daed-exec"|" /etc/init.d/daed
+for e in dae daed; do
+    sed -i "s|^\([[:space:]]*\)procd_set_param respawn$|procd_set_param respawn 3600 5 30|" /etc/init.d/$e
+done
+grep -n "^PROG=" /etc/init.d/dae /etc/init.d/daed
+[ -f /etc/config/daede ] && uci set daede.config.active_backend=dae && uci commit daede
+
 echo "argon: $(sed -n "/^P:luci-theme-argon$/{n;s/^V://p}" /lib/apk/db/installed)"
 # the info screen'"'"'s packages (cage, cog, Mesa, ...), when there is one
 if [ -f /in/infoscreen/packages.txt ]; then
