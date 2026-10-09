@@ -1,5 +1,6 @@
-# E5: the USB port (usb0, an NCM gadget) joins br-lan here, not through
-# netifd.  usb0 must never go down: NCM then loses its framing with the host
+# E5: the USB port's netdevs -- usb0, the NCM gadget, and usb1, the RNDIS one
+# beside it in the same configuration (boot/init) -- join br-lan here, not
+# through netifd.  They must never go down: NCM then loses its framing with the host
 # ("Wrong NTH SIGN" for every frame), and this vendor kernel's NCM function,
 # fed frames it cannot parse, overwrote kernel memory -- a task_struct full of
 # NCM headers, and a panic in the scheduler (2026-09-27, with usb0 as a netifd
@@ -8,9 +9,14 @@
 # a port to a bridge, or taking it out, leaves the port's link alone (Debian
 # does the same, opt/e5/net-bridge.sh).
 [ "$ACTION" = ifup ] && [ "$INTERFACE" = lan ] || exit 0
-[ -e /sys/class/net/usb0 ] && [ -e /sys/class/net/br-lan ] || exit 0
-# the initramfs put 192.168.77.1 on usb0 itself; it is br-lan's now
-ip -4 addr flush dev usb0
-echo 1 > /proc/sys/net/ipv6/conf/usb0/disable_ipv6
-[ -e /sys/class/net/br-lan/brif/usb0 ] || ip link set usb0 master br-lan
-logger -t e5 "usb0 in br-lan"
+[ -e /sys/class/net/br-lan ] || exit 0
+# Each USB netdev is handled on its own, so the order the gadget's functions
+# come up in does not matter and a missing one does not skip the other.
+for d in usb0 usb1; do
+	[ -e /sys/class/net/$d ] || continue
+	# the initramfs put 192.168.77.1 on usb0 itself; it is br-lan's now
+	ip -4 addr flush dev $d
+	echo 1 > /proc/sys/net/ipv6/conf/$d/disable_ipv6
+	[ -e /sys/class/net/br-lan/brif/$d ] || ip link set $d master br-lan
+	logger -t e5 "$d in br-lan"
+done
