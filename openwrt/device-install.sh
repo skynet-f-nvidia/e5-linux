@@ -32,7 +32,7 @@ tar -xzf "$T" -C "$NEW"
 
 if [ -d "$DEST/etc/config" ]; then
     echo "== keeping the configuration of the installed tree"
-    for p in etc/config etc/shadow etc/passwd etc/group etc/dropbear etc/tailscale etc/e5 etc/e5linux etc/uhttpd.crt etc/uhttpd.key; do
+    for p in etc/config etc/shadow etc/passwd etc/group etc/dropbear etc/tailscale etc/dae etc/e5 etc/e5linux etc/uhttpd.crt etc/uhttpd.key; do
         [ -e "$DEST/$p" ] || continue
         if [ -d "$DEST/$p" ] && [ -d "$NEW/$p" ]; then
             # merged: the installed files win, and a file only the new tree
