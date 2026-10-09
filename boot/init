@@ -359,6 +359,26 @@ echo 02:50:00:00:e5:03 > "$g/functions/rndis.usb0/dev_addr"
 echo 02:50:00:00:e5:04 > "$g/functions/rndis.usb0/host_addr"
 ln -s "$g/functions/rndis.usb0" "$g/configs/c.1/f3"
 
+# Microsoft OS descriptors for the RNDIS function.  Windows no longer matches
+# RNDIS by USB class code: the in-box Rndis driver binds to the extended
+# compatible ID "RNDIS"/"5162001" (Microsoft OS 1.0 descriptors, appendix 1),
+# and Windows asks a device for Microsoft OS descriptors only once -- one that
+# answers the 0xEE string request with nothing is never asked again.  Without
+# them the host loads no driver, and from this side the failure looks healthy:
+# enumerated, configured, the netdev up with carrier on (the composite core
+# calls set_alt() by itself), but not one frame either way.  They have to be
+# in place before the gadget's first enumeration, hence before the UDC bind
+# below.  0x0619 is the revision Windows enrolled together with the ID
+# (/opt/e5/gadget-guard.sh repeats all of this, with the same revision, for a
+# gadget that comes up from an initramfs without it).
+echo 0x0619 > "$g/bcdDevice"
+echo 1 > "$g/os_desc/use"
+echo 0xcd > "$g/os_desc/b_vendor_code"
+echo MSFT100 > "$g/os_desc/qw_sign"
+echo RNDIS   > "$g/functions/rndis.usb0/os_desc/interface.rndis/compatible_id"
+echo 5162001 > "$g/functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id"
+ln -s "$g/configs/c.1" "$g/os_desc/c.1"
+
 log "stage=usb-wait-udc"
 udc=
 for n in $(seq 1 40); do
