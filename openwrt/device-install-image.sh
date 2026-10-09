@@ -43,7 +43,7 @@ keep_config() {
     for f in image-version image-form build-time; do
         cp "$N/etc/e5/$f" "/tmp/e5-img.$f" 2>/dev/null || rm -f "/tmp/e5-img.$f"
     done
-    for p in etc/config etc/shadow etc/passwd etc/group etc/dropbear etc/tailscale etc/e5 etc/e5linux \
+    for p in etc/config etc/shadow etc/passwd etc/group etc/dropbear etc/tailscale etc/dae etc/e5 etc/e5linux \
              etc/uhttpd.crt etc/uhttpd.key etc/vnstat etc/e5-infoscreen etc/e5-sms; do
         [ -e "$from/$p" ] || continue
         if [ -d "$from/$p" ] && [ -d "$N/$p" ]; then
