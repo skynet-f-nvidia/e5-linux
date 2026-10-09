@@ -325,19 +325,12 @@ for p in $(sed -En "s/^P:luci-(app|proto)-//p" /lib/apk/db/installed); do
 done
 # the Argon theme (its release'"'"'s packages, unsigned)
 apk_retry add --allow-untrusted $EXTRA_LIST >/dev/null
-# dae and daed need local adjustments, done here so the image ships them: dae
-# builds large BPF maps and RLIMIT_MEMLOCK on this image is 8 MiB (procd
-# ignores its limits key for memlock), and the BPF allocator refills
-# asynchronously, so the first load can lose that race and a few more procd
-# restarts are needed.
-{ echo "#!/bin/sh"; echo "ulimit -l unlimited 2>/dev/null || true"; echo "exec /usr/bin/dae \"\$@\""; } > /usr/libexec/dae-exec
-{ echo "#!/bin/sh"; echo "ulimit -l unlimited 2>/dev/null || true"; echo "exec /usr/bin/daed-guard \"\$@\""; } > /usr/libexec/daed-exec
+# dae and daed are started through the wrappers the overlay installs in
+# /usr/libexec (they raise RLIMIT_MEMLOCK for the BPF maps and retry the
+# asynchronous-allocator race), so point each init script's PROG at them.
 chmod 755 /usr/libexec/dae-exec /usr/libexec/daed-exec
 sed -i "s|^PROG=\"/usr/bin/dae\"|PROG=\"/usr/libexec/dae-exec\"|" /etc/init.d/dae
 sed -i "s|^PROG=\"/usr/bin/daed-guard\"|PROG=\"/usr/libexec/daed-exec\"|" /etc/init.d/daed
-for e in dae daed; do
-    sed -i "s|^\([[:space:]]*\)procd_set_param respawn$|procd_set_param respawn 3600 5 30|" /etc/init.d/$e
-done
 grep -n "^PROG=" /etc/init.d/dae /etc/init.d/daed
 [ -f /etc/config/daede ] && uci set daede.config.active_backend=dae && uci commit daede
 
