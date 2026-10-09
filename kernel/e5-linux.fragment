@@ -23,6 +23,9 @@ CONFIG_USB_F_ECM=y
 CONFIG_USB_F_ACM=y
 CONFIG_USB_CONFIGFS_ECM=y
 CONFIG_USB_CONFIGFS_ACM=y
+# RNDIS next to ECM, for hosts that only speak RNDIS
+CONFIG_USB_F_RNDIS=y
+CONFIG_USB_CONFIGFS_RNDIS=y
 
 # --- Android restricts usermode helpers to one static binary; Linux needs
 #     /proc/sys/kernel/hotplug and the firmware loader
