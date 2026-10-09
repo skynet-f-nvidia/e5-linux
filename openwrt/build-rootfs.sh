@@ -325,13 +325,8 @@ for p in $(sed -En "s/^P:luci-(app|proto)-//p" /lib/apk/db/installed); do
 done
 # the Argon theme (its release'"'"'s packages, unsigned)
 apk_retry add --allow-untrusted $EXTRA_LIST >/dev/null
-# dae and daed are started through the wrappers the overlay installs in
-# /usr/libexec (they raise RLIMIT_MEMLOCK for the BPF maps and retry the
-# asynchronous-allocator race), so point each init script's PROG at them.
-chmod 755 /usr/libexec/dae-exec /usr/libexec/daed-exec
-sed -i "s|^PROG=\"/usr/bin/dae\"|PROG=\"/usr/libexec/dae-exec\"|" /etc/init.d/dae
-sed -i "s|^PROG=\"/usr/bin/daed-guard\"|PROG=\"/usr/libexec/daed-exec\"|" /etc/init.d/daed
-grep -n "^PROG=" /etc/init.d/dae /etc/init.d/daed
+# (the wrapper chmod and PROG patch moved below the overlay copy: they
+#  are overlay files, so the container root does not have them yet)
 [ -f /etc/config/daede ] && uci set daede.config.active_backend=dae && uci commit daede
 
 echo "argon: $(sed -n "/^P:luci-theme-argon$/{n;s/^V://p}" /lib/apk/db/installed)"
@@ -381,6 +376,15 @@ printf "127.0.0.1\tlocalhost\n\n::1\tlocalhost ip6-localhost ip6-loopback\nff02:
 printf "E5\n" > $R/etc/hostname
 
 cp -a /in/overlay/. $R/
+# dae and daed are started through the wrappers the overlay just installed in
+# /usr/libexec (they raise RLIMIT_MEMLOCK for the BPF maps and retry the
+# asynchronous-allocator race), so point the PROG of each init script at them.
+# This must come after the overlay copy: the wrappers are overlay files, so
+# the container root never had them and an earlier chmod failed the build.
+chmod 755 $R/usr/libexec/dae-exec $R/usr/libexec/daed-exec
+sed -i "s|^PROG=\"/usr/bin/dae\"|PROG=\"/usr/libexec/dae-exec\"|" $R/etc/init.d/dae
+sed -i "s|^PROG=\"/usr/bin/daed-guard\"|PROG=\"/usr/libexec/daed-exec\"|" $R/etc/init.d/daed
+grep -n "^PROG=" $R/etc/init.d/dae $R/etc/init.d/daed
 screen=
 if [ -d /in/infoscreen/root ]; then
     cp -a /in/infoscreen/root/. $R/
