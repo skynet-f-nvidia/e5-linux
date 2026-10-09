@@ -55,7 +55,12 @@ while IFS= read -r l; do
         [ "$g" = "$v" ] || grep -qx "$k" /work/config-ignored.txt 2>/dev/null || bad="$bad\nNOT SET: $k want $v got ${g:-unset}";;
     esac
 done < "$CFG"
-[ -z "$bad" ] || { printf "config options not taken:$bad\n" >&2; exit 1; }
+[ -z "$bad" ] || {
+    printf "config options not taken:$bad\n" >&2
+    echo "== the symbols those depend on, as they came out:" >&2
+    grep -E "^#? ?CONFIG_(KPROBES|KPROBE_EVENTS|BPF_EVENTS|PERF_EVENTS|TRACING|TRACING_SUPPORT|STACKTRACE_SUPPORT|TRACE_IRQFLAGS_SUPPORT|HAVE_REGS_AND_STACK_ACCESS_API|HAVE_KPROBES|HAVE_PERF_EVENTS|FTRACE|DYNAMIC_FTRACE|FUNCTION_TRACER|PROBE_EVENTS|DYNAMIC_EVENTS|DEBUG_KERNEL|BPF_SYSCALL|BPF_JIT|DEBUG_INFO|DEBUG_INFO_BTF|DEBUG_INFO_NONE|DEBUG_INFO_DWARF)" "$O/.config" >&2 || true
+    exit 1
+}
 
 # on failure, the compiler's own messages (a plain grep for "error" also matches object names)
 make O="$O" ARCH=arm64 -j"$(nproc)" Image modules > "$O/build.log" 2>&1 || {
