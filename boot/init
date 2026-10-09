@@ -339,52 +339,43 @@ log "stage=usb-configfs"
 mount -t configfs configfs /config 2>/run/configfs.err || log "stage=configfs-fail $(cat /run/configfs.err)"
 g=/config/usb_gadget/linux
 mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409" "$g/functions/rndis.usb0"
-echo 0x0525 > "$g/idVendor"
-echo 0xa4a1 > "$g/idProduct"
+echo 0x18d1 > "$g/idVendor"
+echo 0x4ee7 > "$g/idProduct"
 echo 0x0200 > "$g/bcdUSB"
+echo 0x0100 > "$g/bcdDevice"
 echo E5LINUX > "$g/strings/0x409/serialnumber"
 echo Unisoc > "$g/strings/0x409/manufacturer"
 echo "E5 Linux USB Ethernet" > "$g/strings/0x409/product"
-echo "Linux RNDIS Ethernet" > "$g/configs/c.1/strings/0x409/configuration"
-echo 250 > "$g/configs/c.1/MaxPower"
-# RNDIS only: the host MAC is what keeps an existing ARP entry for the
-# gateway; the netdev (usb1) joins br-lan at first boot (10-e5-usb0).
-echo 02:50:00:00:e5:03 > "$g/functions/rndis.usb0/dev_addr"
-echo 02:50:00:00:e5:04 > "$g/functions/rndis.usb0/host_addr"
+echo rndis > "$g/configs/c.1/strings/0x409/configuration"
+echo 500 > "$g/configs/c.1/MaxPower"
+# RNDIS only, built the way Android builds it (AOSP init.usb.configfs.rc):
+# create the function, link it, and bind -- nothing else.  No device class
+# codes and no Microsoft OS descriptors: Windows binds its in-box Rndismp
+# driver to the RNDIS interface descriptors alone (every phone works without an
+# INF), while both other routes failed here, because Windows decides per device
+# instance and caches that verdict across re-enumerations.  Linux is unaffected
+# either way (rndis_host matches the same descriptors).
+# The netdev is usb0: the function is created before anything else, so u_ether
+# gives it the first free name.  10-e5-usb0 joins it to br-lan at first boot.
+echo 02:50:00:00:e5:13 > "$g/functions/rndis.usb0/dev_addr"
+echo 02:50:00:00:e5:14 > "$g/functions/rndis.usb0/host_addr"
 ln -s "$g/functions/rndis.usb0" "$g/configs/c.1/f3"
-# RNDIS only, with the class codes a Windows host matches: the in-box Rndismp
-# driver binds class 0xEF/0x04/0x01 (miscellaneous, subclass 04, protocol 01),
-# and a device that presents anything else -- 00/00/00, or the multi-interface
-# 0xEF/0x02/0x01 that this file used to declare -- gets no driver at all on
-# Windows: no adapter and no DHCP, while from this side the link looks healthy
-# (enumerated, configured, the netdev up with carrier, the composite core calls
-# set_alt() by itself).  Measured on a Win11 host: this shape links in ~3 s on
-# every boot, and the 0xEF/0x02/0x01 composite only linked when it replaced a
-# working instance in the same session -- never after a reboot.
-#
-# NCM and the CDC-ACM console are therefore gone: Windows never matched the NCM
-# function anyway, and the ACM console only matters to a Linux host.  Linux
-# hosts lose nothing: rndis_host matches the interface codes below, and this
-# netdev is an ordinary br-lan port (10-e5-usb0 joins it at first boot).
-#
-# The Microsoft OS descriptors are published as well.  Windows asks a device
-# instance for them once (osvc), so they cannot be relied on for a rebooted
-# device, but they are what the optional "USB RNDIS 6 Adapter" install path
-# matches.  0x0620 is the revision Windows enrolled with this shape; it must
-# match /opt/e5/gadget-guard.sh (E5_USB_REV overrides it there).
-echo 0xEF > "$g/bDeviceClass"
-echo 0x04 > "$g/bDeviceSubClass"
-echo 0x01 > "$g/bDeviceProtocol"
-echo 0x0620 > "$g/bcdDevice"
-echo 1 > "$g/os_desc/use"
-echo 0xcd > "$g/os_desc/b_vendor_code"
-echo MSFT100 > "$g/os_desc/qw_sign"
-echo RNDIS   > "$g/functions/rndis.usb0/os_desc/interface.rndis/compatible_id"
-echo 5162001 > "$g/functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id"
-ln -s "$g/configs/c.1" "$g/os_desc/c.1"
-# RNDIS is the only function, so u_ether gives its netdev the first free
-# name, usb0 (it was usb1 while ncm.usb0 was registered before it).
-ifconfig usb0 up 2>/dev/null
+# Bind the UDC here, so the host sees this shape on its FIRST enumeration
+# instead of while userspace is still coming up (gadget-guard.sh also binds,
+# for a gadget that an older initramfs left unbound).
+udc=
+for n in $(seq 1 40); do
+    for u in /sys/class/udc/*; do
+        [ -e "$u" ] && { udc=$(basename "$u"); break; }
+    done
+    [ -n "$udc" ] && break
+    sleep 1
+done
+log "stage=usb-udc udc=${udc:-none}"
+if [ -n "$udc" ]; then
+    echo "$udc" > "$g/UDC"
+    log "stage=usb-bind-done rc=$?"
+fi
 persist
 
 # ------------------------------------------------------- root filesystem

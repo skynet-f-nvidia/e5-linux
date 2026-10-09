@@ -1,17 +1,22 @@
 #!/bin/sh
-# dae builds large BPF maps.  RLIMIT_MEMLOCK on this image is 8 MiB -- procd
+# daed (the dae daemon) builds the same large BPF maps.  RLIMIT_MEMLOCK on this image is 8 MiB -- procd
 # ignores its limits= key for memlock -- and the kernel's BPF memory allocator
 # refills its per-CPU cache asynchronously, so a load that loses that race fails
 # with ENOMEM and dae exits.  Raise the limit, and retry the run here a few
 # seconds apart, so procd supervises one long-lived process instead of
 # restarting it on procd's much slower schedule.
+#
+# $BIN is the real binary this wrapper stands in for: the init script's PROG
+# points here (the package's PROG=/usr/bin/dae), so it has to be set here.
+BIN=/usr/bin/daed-guard
+[ -x "$BIN" ] || { echo "daed-exec: $BIN is missing" >&2; exit 127; }
 ulimit -l unlimited 2>/dev/null || true
 
 case "$1" in
 run)
 	n=0
 	while :; do
-		$BIN "$@" &
+		"$BIN" "$@" &
 		child=$!
 		trap 'kill -TERM "$child" 2>/dev/null' TERM INT
 		wait "$child"

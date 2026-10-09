@@ -5,13 +5,18 @@
 # with ENOMEM and dae exits.  Raise the limit, and retry the run here a few
 # seconds apart, so procd supervises one long-lived process instead of
 # restarting it on procd's much slower schedule.
+#
+# $BIN is the real binary this wrapper stands in for: the init script's PROG
+# points here (the package's PROG=/usr/bin/dae), so it has to be set here.
+BIN=/usr/bin/dae
+[ -x "$BIN" ] || { echo "dae-exec: $BIN is missing" >&2; exit 127; }
 ulimit -l unlimited 2>/dev/null || true
 
 case "$1" in
 run)
 	n=0
 	while :; do
-		$BIN "$@" &
+		"$BIN" "$@" &
 		child=$!
 		trap 'kill -TERM "$child" 2>/dev/null' TERM INT
 		wait "$child"
