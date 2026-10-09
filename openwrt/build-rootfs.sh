@@ -280,6 +280,10 @@ apk_retry add --allow-untrusted /in/apk/bluez-libs-*.apk /in/apk/bluez-daemon-*.
 # (curl: the webhook of the SMS forward, /usr/libexec/e5-sms)
 apk_retry add wpad-basic-mbedtls wifi-scripts iwinfo iw ip-full bash mount-utils luci-proto-modemmanager \
     dbus-utils alsa-utils curl >/dev/null
+# SFTP: OpenWrt's dropbear is built with DROPBEAR_SFTPSERVER (Config.in:
+# "default y if !SMALL_FLASH"), which execs an *external* server at
+# /usr/libexec/sftp-server -- the path openssh-sftp-server installs.
+apk_retry add openssh-sftp-server >/dev/null
 # Bluetooth audio: PulseAudio built with BlueZ (the -avahi variant carries
 # the bluetooth modules), run by /etc/init.d/e5-pulseaudio, not by its own
 # init script (which forbids loading the modules a connecting device needs)
