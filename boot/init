@@ -359,19 +359,25 @@ echo 02:50:00:00:e5:03 > "$g/functions/rndis.usb0/dev_addr"
 echo 02:50:00:00:e5:04 > "$g/functions/rndis.usb0/host_addr"
 ln -s "$g/functions/rndis.usb0" "$g/configs/c.1/f3"
 
-# Microsoft OS descriptors for the RNDIS function.  Windows no longer matches
-# RNDIS by USB class code: the in-box Rndis driver binds to the extended
-# compatible ID "RNDIS"/"5162001" (Microsoft OS 1.0 descriptors, appendix 1),
-# and Windows asks a device for Microsoft OS descriptors only once -- one that
-# answers the 0xEE string request with nothing is never asked again.  Without
-# them the host loads no driver, and from this side the failure looks healthy:
-# enumerated, configured, the netdev up with carrier on (the composite core
-# calls set_alt() by itself), but not one frame either way.  They have to be
-# in place before the gadget's first enumeration, hence before the UDC bind
-# below.  0x0619 is the revision Windows enrolled together with the ID
-# (/opt/e5/gadget-guard.sh repeats all of this, with the same revision, for a
-# gadget that comes up from an initramfs without it).
-echo 0x0619 > "$g/bcdDevice"
+# The RNDIS function has to be presentable to a Windows host, which stopped
+# matching RNDIS by the CDC interface codes.  Windows is documented to bind
+# Rndismp.inf to a device of class 0xEF/0x04/0x01, so the device declares
+# itself a multi-interface function device (0xEF/0x02/0x01, "the IADs decide
+# which driver matches each function") and gives the RNDIS function's IAD the
+# RNDIS codes.  The Microsoft OS descriptors are published too: Windows 10/11
+# only ever asks a device instance for them once, so they cannot be relied on
+# after a reboot, but they are what the optional "USB RNDIS 6 Adapter"
+# install path matches.  All of it has to be in place before the gadget's
+# first enumeration, hence before the UDC bind below; /opt/e5/gadget-guard.sh
+# repeats it, with the same revision, for a gadget that comes up from an
+# initramfs without it.
+echo 0xEF > "$g/bDeviceClass"
+echo 0x02 > "$g/bDeviceSubClass"
+echo 0x01 > "$g/bDeviceProtocol"
+echo EF > "$g/functions/rndis.usb0/class"
+echo 4  > "$g/functions/rndis.usb0/subclass"
+echo 1  > "$g/functions/rndis.usb0/protocol"
+echo 0x0620 > "$g/bcdDevice"
 echo 1 > "$g/os_desc/use"
 echo 0xcd > "$g/os_desc/b_vendor_code"
 echo MSFT100 > "$g/os_desc/qw_sign"
