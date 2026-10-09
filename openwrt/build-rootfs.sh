@@ -117,7 +117,7 @@ printf "%s
     [ "$got" = "$sum" ] || { echo "checksum mismatch for $f" >&2; rm -f "$WORK/extra/$f"; exit 1; }
 done
 EXTRA_LIST="$EXTRA_LIST $(printf "%s
-" "$DAE_APKS" | awk "{print "/in/extra/" \$2}" | tr "
+" "$DAE_APKS" | awk "{print \"/in/extra/\" \$2}" | tr "
 " " ")"
 
 
