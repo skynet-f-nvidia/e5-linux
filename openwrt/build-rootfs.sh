@@ -330,11 +330,11 @@ apk_retry add --allow-untrusted $EXTRA_LIST >/dev/null
 # ignores its limits key for memlock), and the BPF allocator refills
 # asynchronously, so the first load can lose that race and a few more procd
 # restarts are needed.
-{ echo "#!/bin/sh"; echo "ulimit -l unlimited 2>/dev/null || true"; echo "exec /usr/bin/dae "\$@""; } > /usr/libexec/dae-exec
-{ echo "#!/bin/sh"; echo "ulimit -l unlimited 2>/dev/null || true"; echo "exec /usr/bin/daed-guard "\$@""; } > /usr/libexec/daed-exec
+{ echo "#!/bin/sh"; echo "ulimit -l unlimited 2>/dev/null || true"; echo "exec /usr/bin/dae \"\$@\""; } > /usr/libexec/dae-exec
+{ echo "#!/bin/sh"; echo "ulimit -l unlimited 2>/dev/null || true"; echo "exec /usr/bin/daed-guard \"\$@\""; } > /usr/libexec/daed-exec
 chmod 755 /usr/libexec/dae-exec /usr/libexec/daed-exec
-sed -i "s|^PROG="/usr/bin/dae"|PROG="/usr/libexec/dae-exec"|" /etc/init.d/dae
-sed -i "s|^PROG="/usr/bin/daed-guard"|PROG="/usr/libexec/daed-exec"|" /etc/init.d/daed
+sed -i "s|^PROG=\"/usr/bin/dae\"|PROG=\"/usr/libexec/dae-exec\"|" /etc/init.d/dae
+sed -i "s|^PROG=\"/usr/bin/daed-guard\"|PROG=\"/usr/libexec/daed-exec\"|" /etc/init.d/daed
 for e in dae daed; do
     sed -i "s|^\([[:space:]]*\)procd_set_param respawn$|procd_set_param respawn 3600 5 30|" /etc/init.d/$e
 done
