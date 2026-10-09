@@ -15,6 +15,10 @@ start() {
 	# unmounts its own before switch_root
 	grep -qs " /sys/kernel/config configfs" /proc/mounts ||
 		mount -t configfs configfs /sys/kernel/config 2>/dev/null
+	# the same for tracefs: kprobe/uprobe events need it, and the kernel now
+	# carries the tracing they belong to (CONFIG_TRACING with BPF_EVENTS)
+	grep -qs " /sys/kernel/tracing tracefs" /proc/mounts ||
+		mount -t tracefs tracefs /sys/kernel/tracing 2>/dev/null
 	/opt/e5/gadget-guard.sh 2>&1 | logger -t e5-hw
 	/opt/e5/regdb-load.sh 2>&1 | logger -t e5-hw
 }
