@@ -338,33 +338,45 @@ ifconfig lo 127.0.0.1 up
 log "stage=usb-configfs"
 mount -t configfs configfs /config 2>/run/configfs.err || log "stage=configfs-fail $(cat /run/configfs.err)"
 g=/config/usb_gadget/linux
-mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409" "$g/functions/rndis.usb0" "$g/functions/ecm.usb0"
+mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409" "$g/functions/acm.GS0"
 echo 0x0525 > "$g/idVendor"
 echo 0xa4a1 > "$g/idProduct"
 echo 0x0200 > "$g/bcdUSB"
-echo 0x0100 > "$g/bcdDevice"
+# 0x0301 (CDC) / 0x0302 (RNDIS): Windows asks for the MS OS descriptors once
+# per VID/PID/bcdDevice and caches the answer, "none" included, so the revision
+# moves whenever the shape does.  gadget-guard.sh sets 0x0302 for RNDIS.
+echo 0x0301 > "$g/bcdDevice"
 echo E5LINUX > "$g/strings/0x409/serialnumber"
 echo Unisoc > "$g/strings/0x409/manufacturer"
 echo "E5 Linux USB Ethernet" > "$g/strings/0x409/product"
-echo "RNDIS + CDC-ECM" > "$g/configs/c.1/strings/0x409/configuration"
-echo 500 > "$g/configs/c.1/MaxPower"
-# Two network functions, so the host can use the one it knows: Windows binds
-# its in-box Rndismp driver to the RNDIS function, macOS and most non-Windows
-# hosts bind the CDC-ECM one, and Linux binds both (its two netdevs are both
-# put in br-lan and either may be used).  /usr/sbin/e5-usb-mode narrows this
-# to a single protocol when /etc/config/e5-usb asks for it; the initramfs
-# cannot read that setting (it runs before the root filesystem is mounted),
-# so it always starts from both and gadget-guard.sh adjusts at boot.
-# The ECM function needs a kernel built with CONFIG_USB_F_ECM.
-echo 02:50:00:00:e5:13 > "$g/functions/rndis.usb0/dev_addr"
-echo 02:50:00:00:e5:14 > "$g/functions/rndis.usb0/host_addr"
-echo 02:50:00:00:e5:11 > "$g/functions/ecm.usb0/dev_addr"
-echo 02:50:00:00:e5:12 > "$g/functions/ecm.usb0/host_addr"
-ln -s "$g/functions/rndis.usb0" "$g/configs/c.1/f3"
-ln -s "$g/functions/ecm.usb0" "$g/configs/c.1/f1"
-# Bind the UDC here, so the host sees this shape on its FIRST enumeration
-# instead of while userspace is still coming up (gadget-guard.sh also binds,
-# for a gadget that an older initramfs left unbound).
+# Miscellaneous / IAD: without this device class Windows' composite driver
+# ignores the association descriptors and hands the interfaces out one by one,
+# so a class driver never sees its function as a whole.
+echo 0xEF > "$g/bDeviceClass"
+echo 0x02 > "$g/bDeviceSubClass"
+echo 0x01 > "$g/bDeviceProtocol"
+echo 250 > "$g/configs/c.1/MaxPower"
+# ONE network function, plus the ACM console -- never two network functions:
+# RNDIS beside a CDC function makes Windows bind the whole device to usbser and
+# show no adapter at all.  "auto" is NCM (Windows 10 2004+/11 bind their inbox
+# UsbNcm.sys to it, macOS and Linux their own drivers) with ECM as the fallback;
+# RNDIS is the explicit choice for older Windows, and it excludes the others.
+# /etc/config/e5-usb selects; /usr/sbin/e5-usb-mode writes it.  The initramfs
+# runs before the root filesystem is mounted so it cannot read that setting: it
+# always starts from auto, and gadget-guard.sh adjusts at boot.
+netf=
+for f in ncm ecm; do
+    mkdir -p "$g/functions/$f.usb0" 2>/dev/null && { netf=$f; break; }
+done
+if [ -n "$netf" ]; then
+    echo 02:50:00:00:e5:01 > "$g/functions/$netf.usb0/dev_addr"
+    echo 02:50:00:00:e5:02 > "$g/functions/$netf.usb0/host_addr"
+    ln -s "$g/functions/$netf.usb0" "$g/configs/c.1/f1"
+fi
+ln -s "$g/functions/acm.GS0" "$g/configs/c.1/f2"
+echo "${netf:-no} net + ACM console" > "$g/configs/c.1/strings/0x409/configuration"
+log "stage=usb-net-function ${netf:-none}"
+# Bind the UDC here, so the host sees this shape on its FIRST enumeration.
 udc=
 for n in $(seq 1 40); do
     for u in /sys/class/udc/*; do
@@ -378,12 +390,13 @@ if [ -n "$udc" ]; then
     echo "$udc" > "$g/UDC"
     log "stage=usb-bind-done rc=$?"
 fi
-# the netdevs (usb0 = RNDIS, usb1 = ECM) must be up before the host can reach
-# them; an interface left down is a link that carries nothing
-for n in usb0 usb1; do
+# The link has to be up before the host activates the function: f_ncm/f_ecm
+# report the link state in their first CONNECT notification and macOS' ECM
+# driver does not pick up a later "connected".  A netdev left down is a link
+# that enumerates, looks configured from the host and carries nothing.
+for n in usb0 usb1 rndis0; do
     [ -e "/sys/class/net/$n" ] && ifconfig "$n" up
 done
-ifconfig usb0 2>/dev/null | head -1 | while read l; do log "stage=usb0 $l"; done
 persist
 
 # ------------------------------------------------------- root filesystem

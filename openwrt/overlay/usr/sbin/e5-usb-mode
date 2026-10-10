@@ -1,34 +1,40 @@
 #!/bin/sh
-# e5-usb-mode [auto|rndis|ecm]
+# e5-usb-mode [auto|ncm|ecm|rndis]
 #
-# Show or set which protocol the USB port offers.  "auto" (the default) offers
-# RNDIS for Windows and CDC-ECM for macOS and other hosts at the same time and
-# lets the host pick; "rndis" or "ecm" force one of them.
+# Show or set which protocol the USB port offers a host:
 #
-# The change is applied at once (the gadget is re-enumerated, so the host sees
-# a disconnect and reconnect) and stored in /etc/config/e5-usb, which survives
-# firmware updates.
+#   auto    NCM, ECM as the fallback                 (the default)
+#   ncm     CDC-NCM, ECM as the fallback
+#   ecm     CDC-ECM, NCM as the fallback
+#   rndis   RNDIS alone, for Windows older than 10 2004
+#
+# Only one network function is ever made, never two: RNDIS beside a CDC function
+# makes Windows bind the whole device to usbser and show no network adapter at
+# all.  Modern Windows (10 2004+, 11) binds NCM with its inbox driver, which is
+# why that is what auto picks; the ACM serial console is always there too.
+#
+# The change is applied at once -- the gadget is re-enumerated, so the host sees
+# a disconnect and a reconnect -- and stored in /etc/config/e5-usb, which a
+# firmware update keeps.
 set -e
 CONF=e5-usb
 
-show() {
-    printf '%s\n' "$(uci -q get $CONF.usb.mode 2>/dev/null || echo auto)"
-}
+show() { uci -q get "$CONF.usb.mode" 2>/dev/null || echo auto; }
+applied() { cat /run/e5/usb-net-applied 2>/dev/null || echo unknown; }
 
 case "${1:-}" in
-    '')
-        show
-        exit 0
-        ;;
-    auto|rndis|ecm) ;;
+    "")
+        echo "mode:    $(show)"
+        echo "applied: $(applied)"
+        exit 0 ;;
+    auto|ncm|ecm|rndis) ;;
     *)
-        echo "usage: e5-usb-mode [auto|rndis|ecm]" >&2
-        exit 2
-        ;;
+        echo "usage: e5-usb-mode [auto|ncm|ecm|rndis]" >&2
+        exit 2 ;;
 esac
 
-uci -q get $CONF.usb >/dev/null 2>&1 || uci set $CONF.usb=usb
-uci set $CONF.usb.mode="$1"
-uci commit $CONF
+uci -q get "$CONF.usb" >/dev/null 2>&1 || uci set "$CONF.usb=usb"
+uci set "$CONF.usb.mode=$1"
+uci commit "$CONF"
 /opt/e5/gadget-guard.sh
-echo "usb net mode: $(show)"
+echo "usb net mode: $1 (applied: $(applied))"
