@@ -1,22 +1,22 @@
-# E5: the USB port's netdevs -- usb0, the NCM gadget, and usb1, the RNDIS one
-# beside it in the same configuration (boot/init) -- join br-lan here, not
-# through netifd.  They must never go down: NCM then loses its framing with the host
-# ("Wrong NTH SIGN" for every frame), and this vendor kernel's NCM function,
-# fed frames it cannot parse, overwrote kernel memory -- a task_struct full of
-# NCM headers, and a panic in the scheduler (2026-09-27, with usb0 as a netifd
-# bridge port: netifd takes its ports down and up).  So netifd owns an empty
-# bridge (bridge_empty, 90-e5) and usb0 is in no configuration of its; adding
-# a port to a bridge, or taking it out, leaves the port's link alone (Debian
-# does the same, opt/e5/net-bridge.sh).
+# E5: the USB gadget's netdevs -- usb0 and usb1, one per network function
+# (RNDIS, CDC-ECM; see /opt/e5/gadget-guard.sh and /usr/sbin/e5-usb-mode) --
+# join br-lan here, not through netifd.  netifd owns an empty bridge
+# (bridge_empty, 90-e5) and these netdevs are in no configuration of its:
+# adding a port to a bridge, or taking it out, leaves the port's link alone.
+#
+# They are also brought up here: a gadget interface that is merely present but
+# down enumerates, looks configured from the host side and carries nothing.
+# Nothing here ever takes one of them down -- the vendor NCM function used to
+# panic the kernel when it was downed and refed (docs/FINDINGS.md 28).
 [ "$ACTION" = ifup ] && [ "$INTERFACE" = lan ] || exit 0
 [ -e /sys/class/net/br-lan ] || exit 0
-# Each USB netdev is handled on its own, so the order the gadget's functions
-# come up in does not matter and a missing one does not skip the other.
-for d in usb0 usb1; do
-	[ -e /sys/class/net/$d ] || continue
-	# the initramfs put 192.168.77.1 on usb0 itself; it is br-lan's now
-	ip -4 addr flush dev $d
-	echo 1 > /proc/sys/net/ipv6/conf/$d/disable_ipv6
-	[ -e /sys/class/net/br-lan/brif/$d ] || ip link set $d master br-lan
-	logger -t e5 "$d in br-lan"
+for d in /sys/class/net/usb*; do
+	[ -e "$d" ] || continue
+	n=${d##*/}
+	# nothing may keep an address of its own on a bridge port
+	ip -4 addr flush dev "$n"
+	echo 1 > /proc/sys/net/ipv6/conf/$n/disable_ipv6
+	ip link set "$n" up
+	[ -e /sys/class/net/br-lan/brif/$n ] || ip link set "$n" master br-lan
+	logger -t e5 "$n up, in br-lan"
 done

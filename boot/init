@@ -338,28 +338,30 @@ ifconfig lo 127.0.0.1 up
 log "stage=usb-configfs"
 mount -t configfs configfs /config 2>/run/configfs.err || log "stage=configfs-fail $(cat /run/configfs.err)"
 g=/config/usb_gadget/linux
-mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409" "$g/functions/rndis.usb0"
-echo 0x18d1 > "$g/idVendor"
-echo 0x4ee7 > "$g/idProduct"
+mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409" "$g/functions/rndis.usb0" "$g/functions/ecm.usb0"
+echo 0x0525 > "$g/idVendor"
+echo 0xa4a1 > "$g/idProduct"
 echo 0x0200 > "$g/bcdUSB"
 echo 0x0100 > "$g/bcdDevice"
 echo E5LINUX > "$g/strings/0x409/serialnumber"
 echo Unisoc > "$g/strings/0x409/manufacturer"
 echo "E5 Linux USB Ethernet" > "$g/strings/0x409/product"
-echo rndis > "$g/configs/c.1/strings/0x409/configuration"
+echo "RNDIS + CDC-ECM" > "$g/configs/c.1/strings/0x409/configuration"
 echo 500 > "$g/configs/c.1/MaxPower"
-# RNDIS only, built the way Android builds it (AOSP init.usb.configfs.rc):
-# create the function, link it, and bind -- nothing else.  No device class
-# codes and no Microsoft OS descriptors: Windows binds its in-box Rndismp
-# driver to the RNDIS interface descriptors alone (every phone works without an
-# INF), while both other routes failed here, because Windows decides per device
-# instance and caches that verdict across re-enumerations.  Linux is unaffected
-# either way (rndis_host matches the same descriptors).
-# The netdev is usb0: the function is created before anything else, so u_ether
-# gives it the first free name.  10-e5-usb0 joins it to br-lan at first boot.
+# Two network functions, so the host can use the one it knows: Windows binds
+# its in-box Rndismp driver to the RNDIS function, macOS and most non-Windows
+# hosts bind the CDC-ECM one, and Linux binds both (its two netdevs are both
+# put in br-lan and either may be used).  /usr/sbin/e5-usb-mode narrows this
+# to a single protocol when /etc/config/e5-usb asks for it; the initramfs
+# cannot read that setting (it runs before the root filesystem is mounted),
+# so it always starts from both and gadget-guard.sh adjusts at boot.
+# The ECM function needs a kernel built with CONFIG_USB_F_ECM.
 echo 02:50:00:00:e5:13 > "$g/functions/rndis.usb0/dev_addr"
 echo 02:50:00:00:e5:14 > "$g/functions/rndis.usb0/host_addr"
+echo 02:50:00:00:e5:11 > "$g/functions/ecm.usb0/dev_addr"
+echo 02:50:00:00:e5:12 > "$g/functions/ecm.usb0/host_addr"
 ln -s "$g/functions/rndis.usb0" "$g/configs/c.1/f3"
+ln -s "$g/functions/ecm.usb0" "$g/configs/c.1/f1"
 # Bind the UDC here, so the host sees this shape on its FIRST enumeration
 # instead of while userspace is still coming up (gadget-guard.sh also binds,
 # for a gadget that an older initramfs left unbound).
@@ -376,6 +378,12 @@ if [ -n "$udc" ]; then
     echo "$udc" > "$g/UDC"
     log "stage=usb-bind-done rc=$?"
 fi
+# the netdevs (usb0 = RNDIS, usb1 = ECM) must be up before the host can reach
+# them; an interface left down is a link that carries nothing
+for n in usb0 usb1; do
+    [ -e "/sys/class/net/$n" ] && ifconfig "$n" up
+done
+ifconfig usb0 2>/dev/null | head -1 | while read l; do log "stage=usb0 $l"; done
 persist
 
 # ------------------------------------------------------- root filesystem

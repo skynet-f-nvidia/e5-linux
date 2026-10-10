@@ -1,0 +1,34 @@
+#!/bin/sh
+# e5-usb-mode [auto|rndis|ecm]
+#
+# Show or set which protocol the USB port offers.  "auto" (the default) offers
+# RNDIS for Windows and CDC-ECM for macOS and other hosts at the same time and
+# lets the host pick; "rndis" or "ecm" force one of them.
+#
+# The change is applied at once (the gadget is re-enumerated, so the host sees
+# a disconnect and reconnect) and stored in /etc/config/e5-usb, which survives
+# firmware updates.
+set -e
+CONF=e5-usb
+
+show() {
+    printf '%s\n' "$(uci -q get $CONF.usb.mode 2>/dev/null || echo auto)"
+}
+
+case "${1:-}" in
+    '')
+        show
+        exit 0
+        ;;
+    auto|rndis|ecm) ;;
+    *)
+        echo "usage: e5-usb-mode [auto|rndis|ecm]" >&2
+        exit 2
+        ;;
+esac
+
+uci -q get $CONF.usb >/dev/null 2>&1 || uci set $CONF.usb=usb
+uci set $CONF.usb.mode="$1"
+uci commit $CONF
+/opt/e5/gadget-guard.sh
+echo "usb net mode: $(show)"
