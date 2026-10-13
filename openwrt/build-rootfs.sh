@@ -182,7 +182,10 @@ if [ "${E5_ROOT_MODULES_ONLY:-0}" = 1 ]; then
     ROOT_REL=$(basename "$1")
     if [ "$FEATURES" = 1 ]; then
         case "$ROOT_REL" in
-            *-e5-mobile1-*) ;;
+            # the device profile's revision marker moved past mobile1; what the
+            # gate means is the E5 device kernel, which the module checks above and
+            # devices/e5/prepare-kernel.py's commit assertion establish
+            *-e5-mobile*-*) ;;
             *) echo 'E5_FEATURES requires the devices/e5 kernel, not donor board modules' >&2; exit 1 ;;
         esac
         [ -f "$1/aw32257_charger.ko" ] && [ -f "$1/audio/snd-soc-sprd-pa-aw87xxx.ko" ] || {
@@ -327,6 +330,9 @@ apk_retry add wpad-basic-mbedtls wifi-scripts iwinfo iw ip-full bash mount-utils
 # SFTP: dropbear is built with DROPBEAR_SFTPSERVER, which execs an external
 # server at /usr/libexec/sftp-server -- the path openssh-sftp-server installs.
 apk_retry add openssh-sftp-server >/dev/null
+# The boot image carries the aarch64/musl fsck.f2fs the guarded userdata recovery
+# in the initramfs runs; boot/prepare-f2fs-tools.py stages it from this root.
+apk_retry add f2fsck >/dev/null
 # Tailscale: the node and its LuCI panel belong to the image, so an image
 # update does not take the tunnel away.  Its login state lives in
 # /etc/tailscale, which the updater carries over, so the node does not have to
@@ -505,6 +511,10 @@ if [ -n "$E5_BUILD_EPOCH" ]; then printf "%s\n" "$E5_BUILD_EPOCH" > $R/etc/e5/bu
 else date -u +%s > $R/etc/e5/build-time; fi
 if [ "$E5_FEATURES" = 1 ]; then
     python3 /in/feature-source/devices/e5/stage.py --root $R
+    # what the staging wrote, for tools/ci-release.py: it rewrites and prunes
+    # part of the screen tree, so the audit verifies these files against this
+    # record and everything else against its source
+    python3 /in/feature-source/tools/stage-manifest.py --root $R
 fi
 cd $R && tar -czf /out/$NAME .
 ls -la /out/$NAME

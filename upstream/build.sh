@@ -15,6 +15,13 @@ if [ -z "${E5_IN_CONTAINER:-}" ]; then
     HERE="$(cd "$(dirname "$0")" && pwd)"
     K="${E5_KERNEL_TREE:-$HERE/../linux-lts-e5}"
     K="$(cd "$K" && pwd)"
+    # The E5's kernel feature set (devices/e5/prepare-kernel.py): the shared
+    # SC2355 TX starvation fix, the USB role policy the device UI drives, the
+    # charger/cpufreq work and the WCN debug log default.  E5_DEVICE_PATCHES=0
+    # builds the bare mainline tree.
+    if [ "${E5_DEVICE_PATCHES:-1}" != 0 ] && [ -f "$HERE/../devices/e5/prepare-kernel.py" ]; then
+        python3 "$HERE/../devices/e5/prepare-kernel.py" "$K"
+    fi
     exec docker run --rm -e E5_IN_CONTAINER=1 -e E5_RELEASE="${E5_RELEASE:-}" \
         -e TZ=CST-8 -e KBUILD_BUILD_TIMESTAMP="${KBUILD_BUILD_TIMESTAMP:-}" \
         -e E5_OUTPUT_UID="$(id -u)" -e E5_OUTPUT_GID="$(id -g)" \
@@ -37,6 +44,16 @@ if [ -n "${E5_RELEASE:-}" ]; then
     sed 's/ e5\.openwrt=[A-Za-z0-9._-]*//' /work/e5-mainline.config > "$CFG"
     ! grep -q 'e5\.openwrt=' "$CFG" || { echo "e5.openwrt= is still in the release command line" >&2; exit 1; }
     echo "   (release: no e5.openwrt=, into out-release/)"
+fi
+if [ "${E5_DEVICE_PATCHES:-1}" != 0 ]; then
+    # The E5 mobile feature set carries the same revision marker that the device
+    # profile's build writes (devices/e5/build-kernel.sh); the archives then say
+    # which feature set the image was built from.
+    cp "$CFG" /tmp/e5-mobile.config
+    sed -i 's/^CONFIG_LOCALVERSION="-e5"$/CONFIG_LOCALVERSION="-e5-mobile4"/' /tmp/e5-mobile.config
+    grep -q 'CONFIG_LOCALVERSION="-e5-mobile4"' /tmp/e5-mobile.config || {
+        echo "cannot mark the E5 mobile feature set in $CFG" >&2; exit 1; }
+    CFG=/tmp/e5-mobile.config
 fi
 make O="$O" ARCH=arm64 allnoconfig >/dev/null
 ./scripts/kconfig/merge_config.sh -m -O "$O" "$O/.config" "$CFG" >/dev/null

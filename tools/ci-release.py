@@ -99,25 +99,50 @@ def audit_root(info):
                            r'opt/e5/android/.+|etc/e5/install\.conf|etc/dropbear/dropbear_.+_host_key|etc/ssh/ssh_host_)')
     wanted = {'usr/share/e5-infoscreen/VERSION', 'etc/e5-infoscreen/plugins/phone/manifest.json',
               'etc/e5/build-time', 'etc/machine-id'}
+    # The device-profile staging rewrites the screen tree on purpose and prunes the
+    # bundled calculator and the LuCI SMS app (devices/t551m/ui-cleanup.py); it leaves
+    # the record tools/stage-manifest.py wrote, and that record plus the staged digests
+    # stands in for the raw sources there.  Without it (a bare image) every file is
+    # compared with its source as before.
+    staged, removed = {}, set()
+    manifest_name = 'etc/e5/root-manifest.json'
+    with tarfile.open(rootfs, 'r|gz') as archive:
+        for entry in archive:
+            if entry.name.removeprefix('./') == manifest_name and entry.isfile():
+                record = json.loads(archive.extractfile(entry).read())
+                staged = record.get('files', {})
+                removed = set(record.get('removed', []))
+                break
+    present = set()
     with tarfile.open(rootfs, 'r|gz') as archive:
         for entry in archive:
             name = entry.name.removeprefix('./')
+            present.add(name)
             if forbidden.match(name):
                 raise ValueError('device-specific file in generic image: ' + name)
             if name.startswith('lib/modules/') and entry.isfile() and name.endswith('.ko'):
                 modules.add(name.split('/')[2])
-            if entry.isfile() and (name in expected or name in wanted):
+            if entry.isfile() and (name in expected or name in wanted or name in staged):
                 stream = archive.extractfile(entry)
-                if name in wanted:
+                if name in wanted or name == manifest_name:
                     data = stream.read()
                     versions[name] = data
                     found[name] = hashlib.sha256(data).hexdigest()
                 else:
                     found[name] = digest(stream)
-    missing = set(expected) - set(found)
-    different = [name for name in expected if name in found and expected[name] != found[name]]
+    owned = set(staged) | removed
+    missing = {name for name in expected if name not in found and name not in owned}
+    different = [name for name in expected
+                 if name in found and name not in owned and expected[name] != found[name]]
     if missing or different:
         raise ValueError(f'root source mismatch: missing={sorted(missing)}, changed={different}')
+    stale = sorted(name for name, value in staged.items() if found.get(name) != value)
+    if stale:
+        raise ValueError('the staged files do not match the staging record: ' + ', '.join(stale[:5]))
+    kept = sorted(name for name in removed if name in present)
+    if kept:
+        raise ValueError('the staging record says these were removed, the image has them: '
+                         + ', '.join(kept[:5]))
     kernel = (TOP / 'upstream/out-release/kernel.release').read_text().strip()
     if modules != {kernel}:
         raise ValueError('root modules do not all match the release kernel')

@@ -60,6 +60,14 @@ MAINLINE=${E5_MAINLINE:-}
 KOUT=${E5_UPSTREAM_OUT:-$TOP/upstream/out-release}
 if [ -n "$MAINLINE" ]; then
     NAME=e5-openwrt-flash-$VER-mainline-$STAMP-$GIT
+    # The E5 device profile (dashboard and mobile features, the USB page with
+    # NCM/ECM/RNDIS, the NV isolation, the info screen) is staged by
+    # openwrt/build-rootfs.sh when E5_FEATURES=1; it needs the info screen base
+    # package and the mainline root modules built just below.
+    if [ -z "${E5_FEATURES:-}" ]; then
+        if [ -n "${E5_INFOSCREEN:-}" ] && [ -f "${E5_INFOSCREEN:-}/packages.txt" ]; then E5_FEATURES=1; else E5_FEATURES=0; fi
+    fi
+    export E5_FEATURES
     KERNEL=$KOUT/Image.lk
     [ -f "$KERNEL" ] || { echo "no $KERNEL: E5_RELEASE=1 upstream/build.sh" >&2; exit 1; }
     # (grep -c, not grep -q: see the kernel check below)
@@ -74,7 +82,7 @@ if [ -n "$MAINLINE" ]; then
             E5_STANDALONE=1 E5_DEVICE_FILES=0 bash "$HERE/build-rootfs.sh"
     fi
 elif [ ! -f "$IMG" ] || [ -n "${E5_REBUILD:-}" ]; then
-    E5_STANDALONE=1 E5_DEVICE_FILES=0 bash "$HERE/build-rootfs.sh"
+    E5_FEATURES=0 E5_STANDALONE=1 E5_DEVICE_FILES=0 bash "$HERE/build-rootfs.sh"
 fi
 echo "== checking the image for device files"
 S0=$(mktemp -d)
@@ -97,6 +105,18 @@ bad=$(cat "$S0/files" |
       grep -E 'lib/firmware/(wcnmodem|gnssmodem|l_agdsp|wifi_board|sprd/)|opt/e5/android/.|etc/e5/install\.conf|mnt/vendor/.|attendedsysupgrade' || true)
 [ -z "$bad" ] || { echo "the generic image carries what it must not (device files, attended sysupgrade):" >&2; echo "$bad" | head >&2; exit 1; }
 
+# The boot image needs the ARM64/musl fsck.f2fs bundle: the initramfs runs it for
+# the guarded userdata recovery.  Stage it from the image just built -- the whole
+# tree, because the musl loader is a symlink to libc.so and only the target makes
+# it a usable file.
+if [ ! -f "$TOP/out/boot/f2fs-tools/manifest.json" ]; then
+    RFS="$WORK/e5-openwrt-$VER-generic-rootfs.tar.gz"
+    [ -f "$RFS" ] || { echo "no $RFS to stage the F2FS tools from" >&2; exit 1; }
+    d=$(mktemp -d)
+    tar -xzf "$RFS" -C "$d"
+    python3 "$TOP/boot/prepare-f2fs-tools.py" --root "$d"
+    rm -rf "$d"
+fi
 echo "== boot image without the overlay"
 BOOT="$TOP/work/boot-linux-slotb-bundle"
 if [ -n "$MAINLINE" ]; then
