@@ -34,12 +34,40 @@ SRC=${1:?image}
 MODE=${2:-}
 case "$MODE" in ''|--try|--switch) ;; *) echo "unknown option $MODE" >&2; exit 2 ;; esac
 
+# Shared by both standalone installers. Never unlink a flock file: a waiter
+# could then lock a different inode. FD 9 is held through cleanup and commit.
+# BEGIN e5-upgrade-lock
+lockdir=/run/e5-upgrade
+[ "$(id -u)" = 0 ] || { echo 'upgrade requires root' >&2; exit 1; }
+command -v flock >/dev/null 2>&1 || { echo 'flock is required for a safe upgrade' >&2; exit 1; }
+(umask 077; mkdir "$lockdir") 2>/dev/null || true
+[ ! -L "$lockdir" ] && [ -d "$lockdir" ] &&
+    [ "$(stat -c '%u:%a' "$lockdir")" = 0:700 ] || {
+    echo 'unsafe upgrade lock directory' >&2; exit 1;
+}
+lockfile=$lockdir/lock
+[ ! -L "$lockfile" ] && { [ ! -e "$lockfile" ] || {
+    [ -f "$lockfile" ] && [ "$(stat -c '%u:%h' "$lockfile")" = 0:1 ];
+}; } || { echo 'unsafe upgrade lock file' >&2; exit 1; }
+update_umask=$(umask)
+umask 077
+exec 9>>"$lockfile"
+umask "$update_umask"
+flock -n 9 || { echo 'another system upgrade is running' >&2; exit 1; }
+# END e5-upgrade-lock
+
 # The configuration of the OpenWrt at $1 into the new root $2 (/etc/config,
 # passwords, SSH keys, /etc/e5, the traffic records, the info screen's apps),
 # the new image's own version files kept.
 keep_config() {
-    local from=$1 N=$2 f p
+    local from=$1 N=$2 f p phone
     echo "== keeping the configuration of $from"
+    # Keep installed apps and their data, but retain this image's bundled phone
+    # code. Otherwise an update silently restores the previous voice fixes/UI.
+    phone=$(mktemp -d /tmp/e5-img.phone.XXXXXX)
+    if [ -f "$N/etc/e5-infoscreen/plugins/phone/manifest.json" ]; then
+        cp -a "$N/etc/e5-infoscreen/plugins/phone/." "$phone/"
+    fi
     for f in image-version image-form build-time; do
         cp "$N/etc/e5/$f" "/tmp/e5-img.$f" 2>/dev/null || rm -f "/tmp/e5-img.$f"
     done
@@ -57,6 +85,11 @@ keep_config() {
         rm -f "$N/etc/e5/$f"
         [ -f "/tmp/e5-img.$f" ] && mv "/tmp/e5-img.$f" "$N/etc/e5/$f"
     done
+    if [ -f "$phone/manifest.json" ]; then
+        mkdir -p "$N/etc/e5-infoscreen/plugins/phone"
+        cp -a "$phone/." "$N/etc/e5-infoscreen/plugins/phone/"
+    fi
+    rm -rf "$phone"
 }
 
 # The device's own files (firmware, the Android vendor subset) as a tar on
