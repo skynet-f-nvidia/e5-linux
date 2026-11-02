@@ -10,7 +10,7 @@ TOP=Path(__file__).resolve().parents[2]
 source=(TOP/'boot/init').read_text()
 function=source[source.index('early_card_firmware() {'):source.index('\nearly_device_firmware() {')]
 assert '-o ro,noload,noatime' in function
-assert source.index('[ "$module" = wcn_bsp.ko ] && early_device_firmware') < source.index('insmod "/linux-modules/$module"')
+assert ('early_device_firmware ;;' in source) and (source.index('early_device_firmware ;;') < source.index('insmod "/linux-modules/$module"'))
 with tempfile.TemporaryDirectory(prefix='e5-early-fw-') as directory:
     root=Path(directory)
     for path in ['sys/mmcblk0','sys/mmcblk1','dev','card/lib/firmware','card/etc/e5','card/sbin','bin','firmware']:
