@@ -37,6 +37,9 @@ def add_android_switcher(package):
 
 
 def add_diff_studio(package):
+    import os
+    if os.environ.get('OPENWRT_GUI_OPTIONAL') == '1':
+        return {}
     return runpy.run_path(str(HERE.parents[1] / 'tools/package-diff-studio.py'))['attach'](package)
 
 
