@@ -38,6 +38,9 @@ def stage(root, out):
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root', type=Path, required=True)
-    p.add_argument('--out', type=Path, default=Path(__file__).resolve().parents[1]/'out/boot/f2fs-tools')
+    default_out = Path(__file__).resolve().parent / 'out/boot/f2fs-tools'
+    if len(Path(__file__).resolve().parents) > 1:
+        default_out = Path(__file__).resolve().parents[1] / 'out/boot/f2fs-tools'
+    p.add_argument('--out', type=Path, default=default_out)
     a = p.parse_args()
     stage(a.root, a.out)
