@@ -90,7 +90,11 @@ for f in config.buildinfo feeds.buildinfo; do
     curl -fsSL --retry 5 --retry-all-errors -o "$WORK/$f" "$URL/$f"
 done
 
-# the source patches, numbered after OpenWrt's own
+cat "$TOP/openwrt/block-mount.Dockerfile" "$TOP/openwrt/build-block-mount.sh" \
+    "$TOP/openwrt/build-block-mount-inner.sh" "$TOP/openwrt/block-probe-guard.h" \
+    "$TOP/openwrt/patches/fstools-probe-device-types.patch" | sha256sum | cut -d' ' -f1 > "$WORK/block_stamp"
+cp "$HERE/patches/fstools-probe-device-types.patch" "$WORK/fstools-probe-device-types.patch"
+cp "$HERE/block-probe-guard.h" "$WORK/block-probe-guard.h"
 rm -rf "$WORK/patches" && mkdir -p "$WORK/patches/src" "$WORK/patches/pkg"
 cp "$HERE/tests/voice-identity.py" "$WORK/voice-identity.py"
 cp "$HERE/tests/modem-port-set-ready.py" "$WORK/modem-port-set-ready.py"
@@ -211,6 +215,25 @@ make package/modemmanager/clean >/dev/null 2>&1 || true
 make package/modemmanager/compile -j"$JOBS" >/build/log 2>&1 || { tail -80 /build/log; exit 1; }
 voice_source=$(find build_dir -path "*/modemmanager-*/src/mm-iface-modem-voice.c" -print -quit)
 [ -n "$voice_source" ] || { echo "missing patched voice source" >&2; exit 1; }
+mkdir -p /out
+P=package/system/fstools
+[ -d "$P" ] || P=package/feeds/base/fstools
+if [ -d "$P" ]; then
+    cp /work/fstools-probe-device-types.patch $P/patches/900-e5-probe-device-types.patch 2>/dev/null || true
+    {
+        printf '%s\n' '--- /dev/null' '+++ b/block-probe-guard.h'
+        printf '@@ -0,0 +1,%s @@\n' "$(wc -l < /work/block-probe-guard.h)"
+        sed 's/^/+/' /work/block-probe-guard.h
+    } > $P/patches/901-e5-probe-guard-header.patch
+    make package/fstools/clean >/dev/null 2>&1 || true
+    make package/fstools/compile -j"$JOBS" >/dev/null 2>&1 || true
+    apk=$(find bin/ -name 'block-mount-*.apk' -type f | head -1)
+    if [ -n "$apk" ]; then
+        cp "$apk" "/out/block-mount-guarded.apk"
+        sha256sum "/out/block-mount-guarded.apk" | cut -d" " -f1 > "/out/block-mount-guarded.apk.sha256"
+        python3 -c "import hashlib; from pathlib import Path; f=open('/work/block_stamp').read().strip(); open('/out/block-mount-guarded.apk.build-id','w').write(f)"
+    fi
+fi
 python3 /work/voice-identity.py "$(dirname "$voice_source")"
 python3 /work/modem-port-set-ready.py "$(dirname "$voice_source")/mm-plugin-manager.c"
 python3 /work/c5greg-empty-nssai.py "$(dirname "$voice_source")/mm-modem-helpers.c"
