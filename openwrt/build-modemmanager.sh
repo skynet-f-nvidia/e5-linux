@@ -218,12 +218,19 @@ voice_source=$(find build_dir -path "*/modemmanager-*/src/mm-iface-modem-voice.c
 mkdir -p /out
 P=package/system/fstools
 [ -d "$P" ] || P=package/feeds/base/fstools
+if [ ! -d "$P" ]; then
+    ./scripts/feeds update base >/dev/null 2>&1 || true
+    ./scripts/feeds install -p base fstools >/dev/null 2>&1 || true
+fi
 if [ -d "$P" ]; then
-    cp /work/fstools-probe-device-types.patch $P/patches/900-e5-probe-device-types.patch 2>/dev/null || true
-    echo "--- /dev/null" > $P/patches/901-e5-probe-guard-header.patch
-    echo "+++ b/block-probe-guard.h" >> $P/patches/901-e5-probe-guard-header.patch
-    echo "@@ -0,0 +1,$(wc -l < /work/block-probe-guard.h) @@" >> $P/patches/901-e5-probe-guard-header.patch
-    sed "s/^/+/" /work/block-probe-guard.h >> $P/patches/901-e5-probe-guard-header.patch
+    mkdir -p "$P/patches"
+    cp /work/fstools-probe-device-types.patch "$P/patches/900-e5-probe-device-types.patch" 2>/dev/null || true
+    echo "--- /dev/null" > "$P/patches/901-e5-probe-guard-header.patch"
+    echo "+++ b/block-probe-guard.h" >> "$P/patches/901-e5-probe-guard-header.patch"
+    echo "@@ -0,0 +1,$(wc -l < /work/block-probe-guard.h) @@" >> "$P/patches/901-e5-probe-guard-header.patch"
+    sed "s/^/+/" /work/block-probe-guard.h >> "$P/patches/901-e5-probe-guard-header.patch"
+    echo "CONFIG_PACKAGE_block-mount=m" >> .config
+    make defconfig >/dev/null 2>&1 || true
     make package/fstools/clean >/dev/null 2>&1 || true
     make package/fstools/compile -j"$JOBS" >/dev/null 2>&1 || true
     apk=$(find bin/ -name "block-mount-*.apk" -type f | head -1)
