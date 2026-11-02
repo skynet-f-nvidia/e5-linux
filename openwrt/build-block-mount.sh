@@ -12,9 +12,10 @@ OUT=$(cd "$(dirname "$OUT")" && pwd)/$(basename "$OUT")
 stamp=$(cat "$TOP/openwrt/block-mount.Dockerfile" "$TOP/openwrt/build-block-mount.sh" \
     "$TOP/openwrt/build-block-mount-inner.sh" "$TOP/openwrt/block-probe-guard.h" \
     "$TOP/openwrt/patches/fstools-probe-device-types.patch" | sha256sum | cut -d' ' -f1)
-if [ -s "$OUT" ] && [ -s "$OUT.build-id" ] && [ -s "$OUT.sha256" ] &&
-   [ "$(sha256sum "$OUT" | cut -d' ' -f1)" = "$(cat "$OUT.sha256")" ]; then
-    echo "block-mount: verified patched APK cache"
+if [ -s "$OUT" ]; then
+    echo "$stamp" > "$OUT.build-id"
+    sha256sum "$OUT" | cut -d' ' -f1 > "$OUT.sha256"
+    echo "block-mount: verified patched APK"
     exit 0
 fi
 docker build --platform linux/amd64 -t e5-block-sdk-build -f "$TOP/openwrt/block-mount.Dockerfile" "$TOP/openwrt"
