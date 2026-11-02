@@ -161,7 +161,8 @@ for try in 1 2 3 4 5; do
     for f in $missing; do rm -rf feeds/$f feeds/$f.*; ./scripts/feeds update $f >/dev/null || true; done
 done
 [ -z "$missing" ] || { echo "feeds not cloned: $missing"; exit 1; }
-./scripts/feeds install modemmanager python3 dbus-utils >/dev/null
+./scripts/feeds install modemmanager python3 dbus-utils libjson-c >/dev/null
+make package/libjson-c/compile -j"$JOBS" >/dev/null 2>&1 || true
 P=feeds/packages/net/modemmanager
 # the package directory back to the feed state, then the E5 changes on top
 git -C feeds/packages checkout -q -- net/modemmanager
