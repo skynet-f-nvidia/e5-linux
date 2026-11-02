@@ -58,7 +58,7 @@ def build(names=None, config_path=None):
         args=[compiler,'-std=gnu11','-pthread','-Os','-g0','-Wall','-Wextra','-Werror','-fstack-protector-strong','-ffunction-sections','-fdata-sections','-Wl,--gc-sections','-Wl,-z,relro,-z,now','-s']
         if name=='t551m-screen-power':args+=['-static']
         else:args += ['-I'+sysroot+'/usr/include/glib-2.0','-I'+sysroot+'/usr/lib/glib-2.0/include',
-                      '-I'+sysroot+'/usr/include','-L'+sysroot+'/usr/lib','-Wl,-rpath-link,'+sysroot+'/usr/lib']
+                      '-I'+sysroot+'/usr/include','-I'+sysroot+'/usr/include/json-c','-L'+sysroot+'/usr/lib','-Wl,-rpath-link,'+sysroot+'/usr/lib']
         args += ['/source/'+s for s in sources]+['-o','/out/'+name+'.tmp']
         if name!='t551m-screen-power':args+=['-lgio-2.0','-lgobject-2.0','-lglib-2.0','-ljson-c','-ldl','-lm']
         cmd=['docker','run','--rm','-e','STAGING_DIR=/build/openwrt/staging_dir/target-aarch64_generic_musl','-v',config['volume']+':/build:ro','-v',linux(SOURCE)+':/source:ro','-v',linux(OUT)+':/out',config['image'],*args]

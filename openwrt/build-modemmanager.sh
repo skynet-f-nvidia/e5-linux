@@ -162,7 +162,6 @@ for try in 1 2 3 4 5; do
 done
 [ -z "$missing" ] || { echo "feeds not cloned: $missing"; exit 1; }
 ./scripts/feeds install modemmanager python3 dbus-utils libjson-c >/dev/null
-make package/libjson-c/compile -j"$JOBS" >/dev/null 2>&1 || true
 P=feeds/packages/net/modemmanager
 # the package directory back to the feed state, then the E5 changes on top
 git -C feeds/packages checkout -q -- net/modemmanager
@@ -207,6 +206,7 @@ if [ ! -f staging_dir/.e5-kernel-ok ]; then
     touch staging_dir/.e5-kernel-ok
 fi
 echo "== modemmanager"
+make package/libjson-c/compile -j"$JOBS" >/dev/null 2>&1 || true
 make package/modemmanager/clean >/dev/null 2>&1 || true
 make package/modemmanager/compile -j"$JOBS" >/build/log 2>&1 || { tail -80 /build/log; exit 1; }
 voice_source=$(find build_dir -path "*/modemmanager-*/src/mm-iface-modem-voice.c" -print -quit)
