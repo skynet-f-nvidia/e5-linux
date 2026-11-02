@@ -503,6 +503,7 @@ docker run --rm --platform linux/arm64 -v "$WORK":/w -v "$OUT":/out \
 apk add -q e2fsprogs python3 binutils >/dev/null
 rm -rf /tmp/r && mkdir /tmp/r && tar -xzf /w/$NAME -C /tmp/r
 python3 /prepare-ext4-tools.py --root /tmp/r --out /out/ext4-tools.tar
+python3 /prepare-ext4-tools.py --root /tmp/r --lock-addon-from /out/ext4-tools.tar --out /out/install-lock-tools.tar
 mkdir -p /out-boot/f2fs-tools
 python3 /prepare-f2fs-tools.py --root /tmp/r --out /out-boot/f2fs-tools
 rm -f /w/$IMG
