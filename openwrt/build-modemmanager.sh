@@ -220,18 +220,17 @@ P=package/system/fstools
 [ -d "$P" ] || P=package/feeds/base/fstools
 if [ -d "$P" ]; then
     cp /work/fstools-probe-device-types.patch $P/patches/900-e5-probe-device-types.patch 2>/dev/null || true
-    {
-        printf '%s\n' '--- /dev/null' '+++ b/block-probe-guard.h'
-        printf '@@ -0,0 +1,%s @@\n' "$(wc -l < /work/block-probe-guard.h)"
-        sed 's/^/+/' /work/block-probe-guard.h
-    } > $P/patches/901-e5-probe-guard-header.patch
+    echo "--- /dev/null" > $P/patches/901-e5-probe-guard-header.patch
+    echo "+++ b/block-probe-guard.h" >> $P/patches/901-e5-probe-guard-header.patch
+    echo "@@ -0,0 +1,$(wc -l < /work/block-probe-guard.h) @@" >> $P/patches/901-e5-probe-guard-header.patch
+    sed "s/^/+/" /work/block-probe-guard.h >> $P/patches/901-e5-probe-guard-header.patch
     make package/fstools/clean >/dev/null 2>&1 || true
     make package/fstools/compile -j"$JOBS" >/dev/null 2>&1 || true
-    apk=$(find bin/ -name 'block-mount-*.apk' -type f | head -1)
+    apk=$(find bin/ -name "block-mount-*.apk" -type f | head -1)
     if [ -n "$apk" ]; then
         cp "$apk" "/out/block-mount-guarded.apk"
         sha256sum "/out/block-mount-guarded.apk" | cut -d" " -f1 > "/out/block-mount-guarded.apk.sha256"
-        python3 -c "import hashlib; from pathlib import Path; f=open('/work/block_stamp').read().strip(); open('/out/block-mount-guarded.apk.build-id','w').write(f)"
+        python3 -c "f=open(\"/work/block_stamp\").read().strip(); open(\"/out/block-mount-guarded.apk.build-id\",\"w\").write(f)"
     fi
 fi
 python3 /work/voice-identity.py "$(dirname "$voice_source")"
