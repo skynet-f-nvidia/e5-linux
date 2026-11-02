@@ -13,8 +13,10 @@ stamp=$(cat "$TOP/openwrt/block-mount.Dockerfile" "$TOP/openwrt/build-block-moun
     "$TOP/openwrt/build-block-mount-inner.sh" "$TOP/openwrt/block-probe-guard.h" \
     "$TOP/openwrt/patches/fstools-probe-device-types.patch" | sha256sum | cut -d' ' -f1)
 if [ -s "$OUT" ]; then
-    echo "$stamp" > "$OUT.build-id"
-    sha256sum "$OUT" | cut -d' ' -f1 > "$OUT.sha256"
+    if [ -w "$(dirname "$OUT")" ]; then
+        echo "$stamp" > "$OUT.build-id"
+        sha256sum "$OUT" | cut -d' ' -f1 > "$OUT.sha256"
+    fi
     echo "block-mount: verified patched APK"
     exit 0
 fi

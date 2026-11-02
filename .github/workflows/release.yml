@@ -198,6 +198,7 @@ jobs:
       - name: Build and test guarded block-mount
         run: |
           # Use native build for fstools inside e5-openwrt-src SDK if qemu-x86_64 has user emulation sigsegv
+          sudo chown -R $USER:$USER out/ || true
           docker run --rm --platform linux/arm64 --privileged tonistiigi/binfmt --install all || true
           sh openwrt/build-block-mount.sh
           E5_TEST_IMAGE="e5-openwrt-base:$E5_WRT_VER" E5_TEST_BLOCK_APK="$PWD/out/openwrt/block-mount-guarded.apk" python3 openwrt/tests/block-probe.py
