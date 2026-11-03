@@ -125,6 +125,23 @@ done
 # (only the pinned ones go in)
 EXTRA_LIST=$(printf "%s\n" "$ARGON_APKS" | awk '{print "/in/extra/" $2}' | tr '\n' ' ')
 
+# dae/daed and the Tailscale LuCI integration are published in the signed
+# OpenWrt 25.12 feed maintained alongside openwrt-daede.  Keep the key pinned;
+# apk still verifies the feed index and package signatures inside the build.
+DAEDE_FEED_BASE=${E5_DAEDE_FEED_BASE:-https://down.dllkids.xyz/openwrt-feed}
+DAEDE_FEED_KEY_URL="$DAEDE_FEED_BASE/keys/dllkids-feed.pub.pem"
+DAEDE_FEED_KEY_SHA256=ea9dd08b41e6b0fc7ffda166a89b2b4904ad5607bf77d82c9f7f2a54e63a8948
+DAEDE_FEED_KEY="$WORK/dllkids-feed.pub.pem"
+if [ ! -f "$DAEDE_FEED_KEY" ]; then
+    rm -f "$DAEDE_FEED_KEY.part"
+    curl -fsSL --retry 5 "$DAEDE_FEED_KEY_URL" -o "$DAEDE_FEED_KEY.part"
+    mv "$DAEDE_FEED_KEY.part" "$DAEDE_FEED_KEY"
+fi
+feed_key_hash=$(shasum -a 256 "$DAEDE_FEED_KEY" 2>/dev/null || sha256sum "$DAEDE_FEED_KEY")
+[ "${feed_key_hash%% *}" = "$DAEDE_FEED_KEY_SHA256" ] || {
+    echo "unexpected dae feed signing key" >&2; exit 1;
+}
+
 ls "$OUT"/bluez-daemon-*.apk >/dev/null 2>&1 || {
     echo "no BlueZ package in $OUT -- run openwrt/build-bluez.sh first" >&2; exit 1; }
 ls "$OUT"/modemmanager-1*.apk >/dev/null 2>&1 || {
@@ -292,12 +309,26 @@ docker run --rm --platform linux/arm64 \
     -v "$WIFI_APKS":/in/wifi-sae:ro \
     -v "$SA":/in/sa:ro -e STANDALONE="$STANDALONE" -v "$RM":/in/root-modules:ro \
     -v "$WORK/extra":/in/extra:ro -e EXTRA_LIST="$EXTRA_LIST" -v "$TP":/in/transplant:ro \
+    -v "$DAEDE_FEED_KEY":/in/daede-feed.pub.pem:ro \
     -v "$TAROUT":/out -e NAME="$NAME" -e VERSION="$VERSION" -e E5_BUILD_EPOCH="${E5_BUILD_EPOCH:-}" -e CONTAINERS="$CONTAINERS" \
+    -e DAEDE_FEED_BASE="$DAEDE_FEED_BASE" \
     e5-openwrt-base:$VER /bin/sh -euc '
 mkdir -p /var/lock /var/run /tmp
+feed_arch=$(cat /etc/apk/arch)
+mkdir -p /etc/apk/keys /etc/apk/repositories.d
+cp /in/daede-feed.pub.pem /etc/apk/keys/dllkids-feed.pub.pem
+chmod 0644 /etc/apk/keys/dllkids-feed.pub.pem
+printf "%s/%s/packages.adb\\n" "$DAEDE_FEED_BASE" "$feed_arch" > /etc/apk/repositories.d/e5-daede.list
+echo "dae feed: $DAEDE_FEED_BASE/$feed_arch"
 apk update >/dev/null
 apk add --allow-untrusted /in/block-mount-guarded.apk >/dev/null
 apk add e2fsprogs resize2fs >/dev/null
+# dae/daed use CO-RE eBPF.  The release kernel carries CONFIG_DEBUG_INFO_BTF,
+# so do not install the detached vmlinux-btf package built for another kernel.
+apk add dae daed luci-app-daede tailscale luci-app-tailscale-community >/dev/null
+for p in dae daed luci-app-daede tailscale luci-app-tailscale-community; do
+    apk info -e "$p" >/dev/null || { echo "missing bundled package: $p" >&2; exit 1; }
+done
 # ModemManager first, from its local file (unsigned): its release is above the
 # repository one, so what depends on it takes this one and apk upgrade keeps it
 apk add --allow-untrusted /in/apk/modemmanager-1*.apk /in/apk/modemmanager-rpcd-*.apk >/dev/null
