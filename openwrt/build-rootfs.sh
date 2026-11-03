@@ -126,8 +126,8 @@ done
 EXTRA_LIST=$(printf "%s\n" "$ARGON_APKS" | awk '{print "/in/extra/" $2}' | tr '\n' ' ')
 
 # dae/daed and the Tailscale LuCI integration are published in the signed
-# OpenWrt 25.12 feed maintained alongside openwrt-daede.  Keep the key pinned;
-# apk still verifies the feed index and package signatures inside the build.
+# OpenWrt 25.12 feed maintained alongside openwrt-daede.  Keep the key pinned
+# for the final image's upgrade source; CI pins the downloaded APK hashes below.
 DAEDE_FEED_BASE=${E5_DAEDE_FEED_BASE:-https://down.dllkids.xyz/openwrt-feed}
 DAEDE_FEED_KEY_URL="$DAEDE_FEED_BASE/keys/dllkids-feed.pub.pem"
 DAEDE_FEED_KEY_SHA256=ea9dd08b41e6b0fc7ffda166a89b2b4904ad5607bf77d82c9f7f2a54e63a8948
@@ -141,6 +141,28 @@ feed_key_hash=$(shasum -a 256 "$DAEDE_FEED_KEY" 2>/dev/null || sha256sum "$DAEDE
 [ "${feed_key_hash%% *}" = "$DAEDE_FEED_KEY_SHA256" ] || {
     echo "unexpected dae feed signing key" >&2; exit 1;
 }
+
+# Pin the release APKs at the host side.  The final image keeps the feed below
+# for online upgrades, while CI does not depend on apk's BusyBox wget reading
+# a large packages.adb object through the feed CDN.
+DAEDE_APKS="$WORK/daede-apks"
+mkdir -p "$DAEDE_APKS"
+DAEDE_APK_LIST="3b594c116097708bc5982256da2cc63d320c80851499b0f69b1f2c9c9c3331be dae-2026.10.30-r1.apk https://github.com/kenzok8/openwrt-daede/releases/download/v2026.10.30-6ac53cb/dae-2026.10.30-r1-aarch64_generic.apk
+1a4a09e38a5fd0e4dc7e29ad50ef84c655de31d43b7b71005a048fabd102018b daed-2026.10.30-r1.apk https://github.com/kenzok8/openwrt-daede/releases/download/v2026.10.30-6ac53cb/daed-2026.10.30-r1-aarch64_generic.apk
+761adabaf1378a188c9ee3a3c3132cd740e82793bcd10e75a15ad527191f55d8 luci-app-daede-1.15-r13.apk https://github.com/kenzok8/openwrt-daede/releases/download/v2026.10.30-6ac53cb/luci-app-daede-1.15-r13-aarch64_generic.apk
+967ef836bf459ec22c7639f5545bbe8947bedbaf4c18d864cfa2335764518f73 v2ray-geoip-202610050438-r1.apk https://down.dllkids.xyz/openwrt-feed/25.12/aarch64_cortex-a53/v2ray-geoip-202610050438-r1.apk
+9e5287d3057bf59bcb40715a9bed0b638133119fcaf9c92c32c29662a8cec86d v2ray-geosite-20261026102707-r1.apk https://down.dllkids.xyz/openwrt-feed/25.12/aarch64_cortex-a53/v2ray-geosite-20261026102707-r1.apk"
+while read -r sum name url; do
+    [ -f "$DAEDE_APKS/$name" ] || {
+        rm -f "$DAEDE_APKS/$name.part"
+        curl -fsSL --retry 5 "$url" -o "$DAEDE_APKS/$name.part"
+        mv "$DAEDE_APKS/$name.part" "$DAEDE_APKS/$name"
+    }
+    got=$(shasum -a 256 "$DAEDE_APKS/$name" 2>/dev/null || sha256sum "$DAEDE_APKS/$name")
+    [ "${got%% *}" = "$sum" ] || {
+        echo "checksum mismatch for $name" >&2; rm -f "$DAEDE_APKS/$name"; exit 1;
+    }
+done <<< "$DAEDE_APK_LIST"
 
 ls "$OUT"/bluez-daemon-*.apk >/dev/null 2>&1 || {
     echo "no BlueZ package in $OUT -- run openwrt/build-bluez.sh first" >&2; exit 1; }
@@ -310,39 +332,22 @@ docker run --rm --platform linux/arm64 \
     -v "$SA":/in/sa:ro -e STANDALONE="$STANDALONE" -v "$RM":/in/root-modules:ro \
     -v "$WORK/extra":/in/extra:ro -e EXTRA_LIST="$EXTRA_LIST" -v "$TP":/in/transplant:ro \
     -v "$DAEDE_FEED_KEY":/in/daede-feed.pub.pem:ro \
+    -v "$DAEDE_APKS":/in/daede:ro \
     -v "$TAROUT":/out -e NAME="$NAME" -e VERSION="$VERSION" -e E5_BUILD_EPOCH="${E5_BUILD_EPOCH:-}" -e CONTAINERS="$CONTAINERS" \
     -e DAEDE_FEED_BASE="$DAEDE_FEED_BASE" \
     e5-openwrt-base:$VER /bin/sh -euc '
 mkdir -p /var/lock /var/run /tmp
-feed_arch=$(cat /etc/apk/arch)
-mkdir -p /etc/apk/keys /etc/apk/repositories.d
-cp /in/daede-feed.pub.pem /etc/apk/keys/dllkids-feed.pub.pem
-chmod 0644 /etc/apk/keys/dllkids-feed.pub.pem
-feed_url="$DAEDE_FEED_BASE/$feed_arch/packages.adb"
-printf "%s\\n" "$feed_url" > /etc/apk/repositories.d/e5-daede.list
-echo "dae feed: $feed_url"
-if ! apk update >/dev/null; then
-    # The public feed follows the documented fallback rule: a generic
-    # aarch64 rootfs can use the minimum Cortex-A53 package set.
-    case "$feed_arch" in
-        aarch64_*) fallback_arch=aarch64_cortex-a53 ;;
-        *) fallback_arch= ;;
-    esac
-    if [ -n "$fallback_arch" ] && [ "$fallback_arch" != "$feed_arch" ]; then
-        feed_url="$DAEDE_FEED_BASE/$fallback_arch/packages.adb"
-        printf "%s\\n" "$feed_url" > /etc/apk/repositories.d/e5-daede.list
-        echo "dae feed fallback: $feed_url"
-        apk update >/dev/null
-    else
-        exit 1
-    fi
-fi
+apk update >/dev/null
+# The dae/daed APKs and geodata were downloaded and hashed on the runner.
+# Their kmod dependencies resolve against the official OpenWrt index below;
+# the final image replaces those 6.12 module files with the 6.18 archive.
+apk add --allow-untrusted /in/daede/*.apk >/dev/null
+apk add tailscale luci-app-tailscale-community >/dev/null
 apk add --allow-untrusted /in/block-mount-guarded.apk >/dev/null
 apk add e2fsprogs resize2fs >/dev/null
 # dae/daed use CO-RE eBPF.  The release kernel carries CONFIG_DEBUG_INFO_BTF,
 # so do not install the detached vmlinux-btf package built for another kernel.
-apk add dae daed luci-app-daede tailscale luci-app-tailscale-community >/dev/null
-for p in dae daed luci-app-daede tailscale luci-app-tailscale-community; do
+for p in dae daed luci-app-daede tailscale luci-app-tailscale-community v2ray-geoip v2ray-geosite; do
     apk info -e "$p" >/dev/null || { echo "missing bundled package: $p" >&2; exit 1; }
 done
 # ModemManager first, from its local file (unsigned): its release is above the
@@ -407,6 +412,15 @@ if [ -f /in/infoscreen/packages.txt ]; then
         grep -qx "P:$p" /lib/apk/db/installed || { echo "the image has no $p: the info screen would not start" >&2; exit 1; }
     done
 fi
+# Keep the signed openwrt-daede source available for LuCI/package upgrades.
+# It is added after all build-time apk operations so a transient feed CDN error
+# cannot block assembly of the already pinned packages above.
+feed_arch=$(cat /etc/apk/arch)
+mkdir -p /etc/apk/keys /etc/apk/repositories.d
+cp /in/daede-feed.pub.pem /etc/apk/keys/dllkids-feed.pub.pem
+chmod 0644 /etc/apk/keys/dllkids-feed.pub.pem
+printf "%s/%s/packages.adb\\n" "$DAEDE_FEED_BASE" "$feed_arch" > /etc/apk/repositories.d/e5-daede.list
+echo "dae feed retained for upgrades: $DAEDE_FEED_BASE/$feed_arch"
 # (apk info <name> describes the repository'"'"'s package; the installed one is here)
 echo "modemmanager $(sed -n "/^P:modemmanager$/{n;s/^V://p}" /lib/apk/db/installed) installed"
 
