@@ -361,7 +361,7 @@ apk add --allow-untrusted /in/apk/bluez-libs-*.apk /in/apk/bluez-daemon-*.apk /i
 apk add --allow-untrusted /in/wifi-sae/*.apk >/dev/null
 # The cipher capability helper needs the section omitted by reduced iw builds.
 apk add iwinfo iw-full ip-full bash mount-utils luci-proto-modemmanager \
-    dbus-utils alsa-utils curl openssl-util msmtp r8152-firmware ttyd luci-app-ttyd luci-i18n-ttyd-tr >/dev/null
+    dbus-utils alsa-utils curl openssl-util msmtp r8152-firmware ttyd luci-app-ttyd luci-i18n-ttyd-tr lua >/dev/null
 # Bluetooth audio: PulseAudio built with BlueZ (the -avahi variant carries
 # the bluetooth modules), run by /etc/init.d/e5-pulseaudio, not by its own
 # init script (which forbids loading the modules a connecting device needs)
