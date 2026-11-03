@@ -26,8 +26,7 @@ function card_modem(m, sims) {
 	if (r.cell?.type != (s.tech == '5gnr' ? '5gnr' : s.tech)) r.cell = null;
 	let cached = null;
 	try { cached = json(readfile('/tmp/unisoc-modem/sim' + sim_card() + '/sig.json') ?? readfile('/tmp/unisoc-modem/sig.json') ?? 'null'); } catch (e) {}
-	if (!s.stale && s.present === true && !s.error && cached?.card == sim_card() && !cached.error && !cached.partial && time()-cached.ts >= 0 && time()-cached.ts <= 10) {
-		// Same serving-NR > LTE/AcT decision as the dashboard; no MM bitmask.
+	if (!s.stale && s.present !== false && !s.error && cached?.card == sim_card() && !cached.error && !cached.partial && time()-cached.ts >= 0 && time()-cached.ts <= 10) {
 		if (cached.nr?.band) {
 			r.tech = '5gnr'; r.radio_label = cached.lte?.band ? '5G NSA' : '5G SA';
 		} else if (cached.lte?.band) {

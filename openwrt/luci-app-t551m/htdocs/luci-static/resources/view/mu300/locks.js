@@ -39,6 +39,10 @@ return view.extend({
   <div class="mud-loadline" id="mud-lock-loading" role="status"></div>
   <div class="mud-ctl" id="mud-lock-modes" style="grid-template-columns:repeat(auto-fit,minmax(76px,1fr));max-width:520px"></div>
   <div id="mud-auto-mode" hidden></div>
+  <div class="mud-ctl" id="mud-lock-gran" style="margin-top:7px;grid-template-columns:1fr 1fr;max-width:340px">
+    <button class="mud-btn" data-gran="sa">SA + NSA</button>
+    <button class="mud-btn" data-gran="nsa">仅 NSA</button>
+  </div>
   <div class="mud-ctl" style="margin-top:7px;grid-template-columns:1fr 1fr;max-width:340px">
     <button class="mud-btn" id="mud-lock-endc">EN-DC</button>
     <button class="mud-btn" id="mud-lock-refresh">刷新锁定状态</button>
@@ -181,6 +185,19 @@ return view.extend({
 				var btn = b;
 				apply('mode', m, '网络模式：' + b.textContent, { btn: btn, optimistic: function() {
 					Array.prototype.forEach.call(self.Q('lock-modes').querySelectorAll('.mud-btn'), function(x) {
+						x.className = x === btn ? 'mud-btn on' : 'mud-btn';
+					});
+				} });
+			};
+		});
+		root.querySelectorAll('#mud-lock-gran .mud-btn').forEach(function(b) {
+			b.onclick = function() {
+				var g = b.getAttribute('data-gran');
+				var curGran = (self.lastLock && self.lastLock.mode && self.lastLock.mode.gran === '1') ? 'sa' : 'nsa';
+				if (g === curGran) return;
+				var btn = b;
+				apply('gran', g, '5G 组网：' + b.textContent, { btn: btn, optimistic: function() {
+					Array.prototype.forEach.call(self.Q('lock-gran').querySelectorAll('.mud-btn'), function(x) {
 						x.className = x === btn ? 'mud-btn on' : 'mud-btn';
 					});
 				} });
@@ -496,6 +513,13 @@ return view.extend({
 		if (cur) Array.prototype.forEach.call(cur.querySelectorAll('.mud-btn'), function(b) {
 			b.className = (b.getAttribute('data-mode') === (l.mode && l.mode.label)) ? 'mud-btn on' : 'mud-btn';
 		});
+		var curGran = this.Q('lock-gran');
+		if (curGran) {
+			var granVal = (l.mode && l.mode.gran === '1') ? 'sa' : 'nsa';
+			Array.prototype.forEach.call(curGran.querySelectorAll('.mud-btn'), function(b) {
+				b.className = (b.getAttribute('data-gran') === granVal) ? 'mud-btn on' : 'mud-btn';
+			});
+		}
 		var eb = this.Q('lock-endc');
 		if (eb) { eb.className = 'mud-btn' + (l.endc === '1' ? ' on' : ''); eb.textContent = l.endc === '1' ? 'EN-DC' : 'EN-DC'; }
 		var ab = this.Q('lock-auto-apply'), autoApply = l.auto_apply !== 0;

@@ -15,6 +15,15 @@ static void stop(int sig) {
 static GQuark domain(void) {
     return g_quark_from_static_string("e5-sim-status");
 }
+static double uptime_now(void) {
+    char *buf = read_text("/proc/uptime", 64);
+    double up = 0.0;
+    if (buf) {
+        sscanf(buf, "%lf", &up);
+        g_free(buf);
+    }
+    return up > 0.0 ? up : monotime();
+}
 static char *query(int card, const char *command, GError **error) {
     GSocketClient *client = g_socket_client_new();
     g_socket_client_set_timeout(client, 6);
@@ -222,7 +231,7 @@ typedef char *(*Reader)(int, const char *, GError **);
 static Json *collect(int card, Reader read) {
     Json *row = json_object_new_object();
     ji(row, "slot", card);
-    jd(row, "updated", monotime());
+    jd(row, "updated", uptime_now());
     js(row, "registration", "unknown");
     js(row, "operator", NULL);
     js(row, "tech", NULL);
@@ -403,7 +412,7 @@ int main(void) {
             g_free(card);
             if (current == active) {
                 Json *value = json_object_new_object();
-                jd(value, "updated", monotime());
+                jd(value, "updated", uptime_now());
                 ji(value, "active", active);
                 json_object_object_add(value, "sims", rows);
                 write_json("/run/t551m-sims.json", value);
