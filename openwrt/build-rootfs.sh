@@ -318,9 +318,25 @@ feed_arch=$(cat /etc/apk/arch)
 mkdir -p /etc/apk/keys /etc/apk/repositories.d
 cp /in/daede-feed.pub.pem /etc/apk/keys/dllkids-feed.pub.pem
 chmod 0644 /etc/apk/keys/dllkids-feed.pub.pem
-printf "%s/%s/packages.adb\\n" "$DAEDE_FEED_BASE" "$feed_arch" > /etc/apk/repositories.d/e5-daede.list
-echo "dae feed: $DAEDE_FEED_BASE/$feed_arch"
-apk update >/dev/null
+feed_url="$DAEDE_FEED_BASE/$feed_arch/packages.adb"
+printf "%s\\n" "$feed_url" > /etc/apk/repositories.d/e5-daede.list
+echo "dae feed: $feed_url"
+if ! apk update >/dev/null; then
+    # The public feed follows the documented fallback rule: a generic
+    # aarch64 rootfs can use the minimum Cortex-A53 package set.
+    case "$feed_arch" in
+        aarch64_*) fallback_arch=aarch64_cortex-a53 ;;
+        *) fallback_arch= ;;
+    esac
+    if [ -n "$fallback_arch" ] && [ "$fallback_arch" != "$feed_arch" ]; then
+        feed_url="$DAEDE_FEED_BASE/$fallback_arch/packages.adb"
+        printf "%s\\n" "$feed_url" > /etc/apk/repositories.d/e5-daede.list
+        echo "dae feed fallback: $feed_url"
+        apk update >/dev/null
+    else
+        exit 1
+    fi
+fi
 apk add --allow-untrusted /in/block-mount-guarded.apk >/dev/null
 apk add e2fsprogs resize2fs >/dev/null
 # dae/daed use CO-RE eBPF.  The release kernel carries CONFIG_DEBUG_INFO_BTF,
