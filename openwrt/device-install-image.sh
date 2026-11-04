@@ -73,7 +73,8 @@ keep_config() {
     done
     for p in etc/config etc/shadow etc/passwd etc/group etc/dropbear etc/e5 etc/e5linux \
              etc/uhttpd.crt etc/uhttpd.key etc/vnstat etc/e5-infoscreen etc/e5-sms \
-             etc/unisoc-modem etc/e5-sounds etc/e5-cpu-voltage.json etc/bluetooth; do
+             etc/unisoc-modem etc/e5-sounds etc/e5-cpu-voltage.json etc/bluetooth \
+             etc/tailscale etc/dae etc/daed root; do
         [ -e "$from/$p" ] || continue
         if [ -d "$from/$p" ] && [ -d "$N/$p" ]; then
             cp -a "$from/$p/." "$N/$p/"
