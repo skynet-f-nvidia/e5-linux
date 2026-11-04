@@ -108,10 +108,14 @@ def active_card():
     return card
 
 def testmode():
-    v = numbers('AT+SPTESTMODE?', '+SPTESTMODE')
-    if len(v) < 3:
-        raise RuntimeError('Incomplete network mode response')
-    return v
+    for line in reversed(at('AT+SPTESTMODE?')):
+        if line.startswith('+SPTESTMODE:'):
+            raw = line.split(':', 1)[1].strip()
+            if re.fullmatch(r'\d+(?:\s*,\s*\d+)*', raw):
+                nums = [int(n) for n in raw.split(',')]
+                if len(nums) >= 3:
+                    return nums
+    raise RuntimeError('Incomplete network mode response')
 
 def masks(bands, tables):
     return [sum(1 << table.index(b) for b in set(bands) if b in table) for table in tables]

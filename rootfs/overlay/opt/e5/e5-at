@@ -68,10 +68,10 @@ if [ "$profile" = t551m ] || [ "$profile" = e5 ] || [ "$profile" = m8 ] || [ "$p
             # SMS operations still need that port's charset/storage context.
             case "$norm" in
                 *+E5SMS*|*+CMGS*|*+CMGC*|*+CMGW*|*+CMSS*|*+CMGR*|*+CMGL*|*+CMGD*|*+CMGF*|*+CPMS*|*+CNMI*|*+CNMA*|*+CSCS=*|*+CSCA*|*+CSMP*|*+CSMS*|*+CSCB*|*+CSDH*) ;;
-                *) exec /opt/e5/t551m-at -t "$T" "$CMD" ;;
+                *) [ -x /opt/e5/t551m-at ] && exec /opt/e5/t551m-at -t "$T" "$CMD" ;;
             esac
             ;;
-        *) exec /opt/e5/t551m-at -t "$T" "$CMD" ;;
+        *) [ -x /opt/e5/t551m-at ] && exec /opt/e5/t551m-at -t "$T" "$CMD" ;;
     esac
 fi
 

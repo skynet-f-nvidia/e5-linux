@@ -549,6 +549,29 @@ chmod 0644 $R/usr/libexec/unisoc-modem/hotspot.uc
 cp /in/feature-source/openwrt/luci-app-t551m/root/usr/libexec/unisoc-modem/disable-stock-upgrade $R/usr/libexec/unisoc-modem/disable-stock-upgrade
 chmod 0755 $R/usr/libexec/unisoc-modem/disable-stock-upgrade
 ucode $R/usr/libexec/unisoc-modem/disable-stock-upgrade $R
+python3 -c "
+import os, shutil
+from pathlib import Path
+TOP = Path('/in/feature-source')
+plugin = TOP / 'openwrt/luci-app-t551m'
+root = Path('$R')
+for srcdir, dest in [('root', root), ('htdocs', root / 'www'), ('lmo', root / 'usr/lib/lua/luci/i18n')]:
+    src_base = plugin / srcdir
+    if not src_base.exists(): continue
+    for src in src_base.rglob('*'):
+        if not src.is_file() or '__pycache__' in src.parts: continue
+        rel = src.relative_to(src_base)
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = src.read_bytes()
+        if srcdir == 'root' and rel.as_posix() == 'etc/config/unisoc_modem':
+            content = content.replace(b\"'1,3,5,8,34,39,40,41'\", b\"'1,3,5,8,34,38,39,40,41'\")
+        target.write_bytes(content)
+        executable = srcdir == 'root' and any(part in src.parts for part in ('init.d', 'hotplug.d', 'libexec', 'uci-defaults'))
+        target.chmod(0o755 if executable else 0o644)
+        if srcdir == 'root' and rel.as_posix() == 'etc/config/unisoc_apn':
+            target.chmod(0o600)
+"
 python3 /in/feature-source/installer/stage-ota.py --root $R
 python3 /in/feature-source/tools/release-ui-policy.py --root $R
 cd $R && tar -czf /out/$NAME .
