@@ -75,11 +75,11 @@ if [ -n "$MAINLINE" ]; then
         bash "$HERE/image-add-modules.sh" "$E5_IMAGE_FROM" "$KOUT/root-modules.tar" "$IMG"
     else
         # the image always again: it has to carry this kernel's root modules
-        E5_FEATURES=1 E5_ROOT_MODULES=$KOUT/root-modules.tar E5_ROOT_MODULES_ONLY=1 \
+        E5_ROOT_MODULES=$KOUT/root-modules.tar E5_ROOT_MODULES_ONLY=1 \
             E5_STANDALONE=1 E5_DEVICE_FILES=0 bash "$HERE/build-rootfs.sh"
     fi
 elif [ ! -f "$IMG" ] || [ -n "${E5_REBUILD:-}" ]; then
-    E5_FEATURES=1 E5_STANDALONE=1 E5_DEVICE_FILES=0 bash "$HERE/build-rootfs.sh"
+    E5_STANDALONE=1 E5_DEVICE_FILES=0 bash "$HERE/build-rootfs.sh"
 fi
 echo "== checking the image for device files"
 S0=$(mktemp -d)
