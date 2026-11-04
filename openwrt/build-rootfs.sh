@@ -550,11 +550,10 @@ cp /in/feature-source/openwrt/luci-app-t551m/root/usr/libexec/unisoc-modem/disab
 chmod 0755 $R/usr/libexec/unisoc-modem/disable-stock-upgrade
 ucode $R/usr/libexec/unisoc-modem/disable-stock-upgrade $R
 python3 -c "
-import os, shutil
 from pathlib import Path
 TOP = Path('/in/feature-source')
 plugin = TOP / 'openwrt/luci-app-t551m'
-root = Path('$R')
+root = Path('/build/root')
 for srcdir, dest in [('root', root), ('htdocs', root / 'www'), ('lmo', root / 'usr/lib/lua/luci/i18n')]:
     src_base = plugin / srcdir
     if not src_base.exists(): continue
