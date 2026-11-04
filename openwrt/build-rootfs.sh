@@ -342,12 +342,12 @@ apk update >/dev/null
 # Their kmod dependencies resolve against the official OpenWrt index below;
 # the final image replaces those 6.12 module files with the 6.18 archive.
 apk add --allow-untrusted /in/daede/*.apk >/dev/null
-apk add tailscale luci-app-tailscale-community >/dev/null
+apk add tailscale luci-app-tailscale-community wireguard-tools luci-proto-wireguard >/dev/null
 apk add --allow-untrusted /in/block-mount-guarded.apk >/dev/null
 apk add e2fsprogs resize2fs >/dev/null
 # dae/daed use CO-RE eBPF.  The release kernel carries CONFIG_DEBUG_INFO_BTF,
 # so do not install the detached vmlinux-btf package built for another kernel.
-for p in dae daed luci-app-daede tailscale luci-app-tailscale-community v2ray-geoip v2ray-geosite; do
+for p in dae daed luci-app-daede tailscale luci-app-tailscale-community wireguard-tools luci-proto-wireguard v2ray-geoip v2ray-geosite; do
     apk info -e "$p" >/dev/null || { echo "missing bundled package: $p" >&2; exit 1; }
 done
 # ModemManager first, from its local file (unsigned): its release is above the
