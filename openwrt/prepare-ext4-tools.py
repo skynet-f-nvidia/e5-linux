@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bundle musl ARM64 ext4 tools and their ELF dependencies for rooted Android."""
 import argparse
+from collections import deque
 import hashlib
 import io
 import json
@@ -9,6 +10,40 @@ import re
 import subprocess
 import tarfile
 import tempfile
+
+
+def image_path(root, name):
+    """Resolve an image path without following links against the host root."""
+    parts = deque(name.split('/'))
+    resolved = []
+    links = 0
+    while parts:
+        part = parts.popleft()
+        if not part or part == '.':
+            continue
+        if part == '..':
+            if not resolved:
+                raise ValueError('Path escapes image root: ' + name)
+            resolved.pop()
+            continue
+        # These have special meaning on Windows, but not in image paths.
+        if '\\' in part or ':' in part:
+            raise ValueError('Invalid image path: ' + name)
+        path = root.joinpath(*resolved, part)
+        if path.is_symlink():
+            links += 1
+            if links > 40:
+                raise ValueError('Too many symlinks: ' + name)
+            target = str(path.readlink())
+            if target.startswith('/'):
+                resolved.clear()
+            parts.extendleft(reversed(target.split('/')))
+        else:
+            path.lstat()  # Do not silently accept a missing path.
+            if parts and not path.is_dir():
+                raise NotADirectoryError(str(path))
+            resolved.append(part)
+    return root.joinpath(*resolved)
 
 
 def build(root, out, include_lock=False):
@@ -22,7 +57,19 @@ def build(root, out, include_lock=False):
             name = pending.pop()
             if name in hashes:
                 continue
-            source = root / name
+            try:
+                source = image_path(root, name)
+            except FileNotFoundError:
+                if name != 'usr/bin/flock':
+                    raise
+                # Some images contain the package binary without alternatives.
+                flock = image_path(root, 'usr/bin') / 'flock'
+                try:
+                    flock.lstat()
+                except FileNotFoundError:
+                    source = image_path(root, 'usr/bin/util-linux-flock')
+                else:
+                    raise
             data = source.read_bytes()
             if data[:6] != b'\x7fELF\x02\x01' or int.from_bytes(data[18:20], 'little') != 183:
                 raise ValueError('Expected ARM64 ELF: ' + name)
@@ -35,10 +82,18 @@ def build(root, out, include_lock=False):
             dynamic = subprocess.check_output(['readelf', '-D', '-d', str(source)], text=True,
                                               stderr=subprocess.DEVNULL)
             for lib in re.findall(r'\(NEEDED\).*\[(.*?)\]', dynamic):
-                candidates = [d + '/' + lib for d in ('lib', 'usr/lib') if (root / d / lib).is_file()]
-                if not candidates:
+                if not lib or lib in ('.', '..') or any(c in lib for c in '/\\:'):
+                    raise ValueError('Invalid dependency: ' + lib)
+                for d in ('lib', 'usr/lib'):
+                    candidate = d + '/' + lib
+                    try:
+                        if image_path(root, candidate).is_file():
+                            pending.append(candidate)
+                            break
+                    except FileNotFoundError:
+                        pass
+                else:
                     raise ValueError('Missing dependency: ' + lib)
-                pending.append(candidates[0])
         name = 'ext4-geometry.sh'
         data = (Path(__file__).resolve().parent / 'bundle' / name).read_bytes().replace(b'\r\n', b'\n')
         (stage / name).write_bytes(data)

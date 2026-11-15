@@ -617,6 +617,20 @@ apk add -q e2fsprogs python3 binutils >/dev/null
 rm -rf /tmp/r && mkdir /tmp/r && tar -xzf /w/$NAME -C /tmp/r
 python3 /prepare-ext4-tools.py --root /tmp/r --out /out/ext4-tools.tar
 python3 /prepare-ext4-tools.py --root /tmp/r --lock-addon-from /out/ext4-tools.tar --out /out/install-lock-tools.tar
+# Verify the exact bundled locker and its inherited-descriptor semantics.
+mkdir -p /tmp/lock-check
+tar -xf /out/ext4-tools.tar -C /tmp/lock-check
+tar -xf /out/install-lock-tools.tar -C /tmp/lock-check
+(cd /tmp/lock-check && sha256sum -c SHA256SUMS && sha256sum -c INSTALL-LOCK-SHA256SUMS)
+exec 9>/tmp/lock-check-file
+chroot /tmp/lock-check /usr/bin/flock -n 9
+exec 8>/tmp/lock-check-file
+if chroot /tmp/lock-check /usr/bin/flock -n 8; then
+    echo "bundled flock did not prevent a conflicting lock" >&2; exit 1
+fi
+exec 9>&-
+chroot /tmp/lock-check /usr/bin/flock -n 8
+exec 8>&-
 mkdir -p /out-boot/f2fs-tools
 python3 /prepare-f2fs-tools.py --root /tmp/r --out /out-boot/f2fs-tools
 rm -f /w/$IMG

@@ -159,6 +159,7 @@ jobs:
         run: |
           python3 upstream/tests/test_nfqueue_config.py
           python3 openwrt/tests/image-keep-config.py
+          python3 openwrt/tests/test_prepare_ext4_tools.py
       - name: Build ARM64 toolchain container
         run: docker build -t e5-mainline-build upstream/
       - name: Compile the release kernel
