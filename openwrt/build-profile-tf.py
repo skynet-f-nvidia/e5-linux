@@ -43,11 +43,13 @@ def main():
         p.add_argument('--' + name, type=Path, required=True)
     p.add_argument('--apk-image', default='mu300-openwrt-base:25.12.5')
     p.add_argument('--wifi-apks', type=Path, default=TOP / 'work/wifi-sae')
+    p.add_argument('--lpac-apks', type=Path, required=True)
     p.add_argument('--release-version', help='Optional explicit private release version')
     p.add_argument('--cc', default='aarch64-linux-gnu-gcc')
     a = p.parse_args()
     runpy.run_path(str(TOP / 'openwrt/bundle/flash.py'))['validate_installer_busybox'](a.busybox)
     wifi_build = runpy.run_path(str(TOP / 'openwrt/wifi-sae-state.py'))['inspect'](a.wifi_apks)
+    runpy.run_path(str(TOP / 'openwrt/lpac-state.py'))['inspect'](a.lpac_apks)
     wifi_args = ' '.join('/wifi-sae/' + n for n in sorted(wifi_build['apks']))
     if os.geteuid() != 0 or a.work.exists():
         p.error('Run as root with a new work directory')
@@ -116,15 +118,18 @@ def main():
         'mkdir /tmp/modem-verify && apk extract --allow-untrusted --destination /tmp/modem-verify /modem/' + modem_daemon + ' && '
         'cmp /target/usr/sbin/ModemManager /tmp/modem-verify/usr/sbin/ModemManager && '
         'ucode /target/usr/libexec/unisoc-modem/disable-channel-analysis /target && '
+        'ucode /target/usr/libexec/unisoc-modem/limit-wifi-widths /target && '
         # Incremental builds must also add newly mandatory packages to old bases.
         'apk_retry --root /target update >/dev/null && '
         'apk_retry --root /target --no-scripts add ttyd luci-app-ttyd luci-i18n-ttyd-zh-cn luci-i18n-ttyd-tr iw-full '
-        'rpcd-mod-ucode ucode-mod-fs ucode-mod-ubus ucode-mod-uci ucode-mod-uloop ucode-mod-rtnl ucode-mod-nl80211 && '
+        'python3-openssl ca-bundle rpcd-mod-ucode ucode-mod-fs ucode-mod-ubus ucode-mod-uci ucode-mod-uloop ucode-mod-rtnl ucode-mod-nl80211 && '
         'sh /target/usr/libexec/e5-ttyd-bind /target && '
         'ln -sf ../init.d/ttyd /target/etc/rc.d/S99ttyd && '
         'ln -sf ../init.d/ttyd /target/etc/rc.d/K50ttyd && '
         'ucode /target/usr/libexec/unisoc-modem/disable-stock-upgrade /target')
     runpy.run_path(str(TOP / 'devices/t551m/network-startup.py'))['patch_root'](root, a.profile)
+    runpy.run_path(str(TOP / 'openwrt/stage-lpac.py'))['install'](root, a.lpac_apks, a.apk_image)
+    runpy.run_path(str(TOP / 'tools/stage-flow-offload.py'))['stage'](root)
     # The SMS forward signs DingTalk webhooks with the openssl CLI and sends SMTP
     # through msmtp; the clean base carries the backend files without the packages.
     # (downloads.openwrt.org interrupts mid-index often enough that the same
@@ -198,9 +203,9 @@ def main():
         '--misc-head', a.misc_head, '--kernel', a.kernel / 'Image.lk',
         '--modules', a.kernel / 'modules', '--module-order', boot_order,
         '--busybox', a.busybox, *ufs_args, '--init', init, '--cmdline',
-        'e5.lkpad=0000000000' if a.profile == 't512n' else '', '--out', files / 'boot.img')
+        'e5.lkpad=0000000000' if a.profile in ('t512n', 'lym10k') else '', '--out', files / 'boot.img')
     boot = json.loads((files / 'boot.json').read_text())
-    expected_command = ('e5.lkpad=0000000000 ' if a.profile == 't512n' else '') + 'e5.part_v=2'
+    expected_command = ('e5.lkpad=0000000000 ' if a.profile in ('t512n', 'lym10k') else '') + 'e5.part_v=2'
     assert boot['overlay_files'] == 0 and boot['cmdline'] == expected_command
     (files / 'boot.misc-slot-b-trial.bin').rename(files / 'boot-misc-slot-b.bin')
     sources = {}
@@ -291,7 +296,22 @@ def main():
 
 
 def audit(root, profile, release):
+    runpy.run_path(str(TOP/'openwrt/stage-lpac.py'))['audit'](root)
+    for name in ('usr/sbin/unisoc-ra-renew','etc/init.d/unisoc-ra-renew'):
+        assert (root/name).read_bytes() == (TOP/'openwrt/overlay'/name).read_bytes().replace(b'\r\n',b'\n'), name
+        assert os.access(root/name, os.X_OK), name
+    for name in ('S98unisoc-ra-renew','K10unisoc-ra-renew'):
+        assert os.readlink(root/'etc/rc.d'/name) == '../init.d/unisoc-ra-renew'
     assert (root / 'etc/e5/device-profile').read_text().strip() == profile
+    assert json.loads((root / 'usr/share/unisoc-battery-history/profile.json').read_text())['family'] == 'e5'
+    for name in ('usr/share/ucode/mu300/battery-history.uc',
+                 'www/luci-static/resources/view/mu300/battery.js'):
+        assert (root / name).is_file(), name
+    for name in ('etc/init.d/unisoc-battery-history', 'usr/libexec/unisoc-modem/battery-history'):
+        assert os.access(root / name, os.X_OK), name
+    assert (root / 'etc/rc.d/S96unisoc-battery-history').is_symlink()
+    assert (root / 'etc/rc.d/K12unisoc-battery-history').is_symlink()
+    assert not (root / 'etc/e5/battery').exists(), 'Device battery history must not ship in releases'
     assert [p.name for p in (root / 'lib/modules').iterdir()] == [release]
     for directory in ('opt/e5/android', 'etc/dropbear', 'etc/ssh', 'root', 'tmp'):
         assert not any((root / directory).iterdir()), directory
@@ -318,6 +338,7 @@ def audit(root, profile, release):
                  'opt/e5/t551m-atd', 'usr/libexec/e5-mm-state',
                  'usr/libexec/e5-background', 'usr/libexec/e5-background-cpus',
                  'usr/libexec/e5-charge-core.uc', 'usr/libexec/e5-usb-watch.uc',
+                 'usr/libexec/unisoc-modem/device-usb', 'usr/libexec/unisoc-modem/usb-link.uc',
                  'usr/share/ucode/e5/dash.uc', 'usr/share/rpcd/ucode/e5status.uc'):
         assert (root / name).stat().st_size, name
     modem = (root / 'etc/config/unisoc_modem').read_text()

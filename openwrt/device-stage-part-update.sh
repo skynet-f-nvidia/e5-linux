@@ -75,7 +75,7 @@ settings=
 for name in etc/config etc/shadow etc/passwd etc/group etc/dropbear etc/e5 etc/e5linux \
     etc/uhttpd.crt etc/uhttpd.key etc/vnstat etc/e5-infoscreen etc/e5-sms etc/unisoc-modem \
     etc/e5-sounds etc/e5-cpu-voltage.json etc/bluetooth \
-    etc/tailscale etc/dae etc/daed root; do
+    etc/tailscale etc/honk root; do
     [ ! -e "$name" ] || settings="$settings $name"
 done
 # Preserve policy's NV archive already includes this entire history. Original

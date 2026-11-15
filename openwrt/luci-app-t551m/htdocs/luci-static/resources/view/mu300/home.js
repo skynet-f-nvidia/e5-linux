@@ -118,7 +118,7 @@ return view.extend({
 		Promise.all([first, config]).then(function() {
 			schedule(refresh, firstStarted, intervalMs, '_refreshTimer');
 		});
-		M.simSelector(root);
+		M.simSelector(root, 'hero');
 		return root;
 	},
 
@@ -132,7 +132,7 @@ return view.extend({
 		return `
 <div class="mud-card mud-hero">
   <div class="mud-hero-l">
-    <div style="font-size:.78rem;color:var(--text-muted,var(--text-light,#777))">
+    <div class="mud-hero-meta" style="font-size:.78rem;color:var(--text-muted,var(--text-light,#777))">
       <span class="mud-dot" id="mud-dot"></span><b id="mud-host" style="color:var(--text,#222)">--</b>
       <span id="mud-uptime"></span></div>
     <div class="mud-rat" id="mud-rat">--<span class="mud-bars" id="mud-bars"><i style="height:25%"></i><i style="height:45%"></i><i style="height:65%"></i><i style="height:85%"></i><i style="height:100%"></i></span></div>
@@ -168,7 +168,7 @@ return view.extend({
     <div class="mud-kpi"><b id="mud-tx">--</b><span>累计发送</span></div>
     <div class="mud-kpi"><b id="mud-tr-day">--</b><span>今日流量</span></div>
     <div class="mud-kpi"><b id="mud-tr-month">--</b><span>当月流量</span></div>
-    <div class="mud-kpi"><b id="mud-tr-left">--</b><span>套餐剩余</span></div>
+    <div class="mud-kpi"><b id="mud-tr-left">--</b><span id="mud-tr-plan">套餐剩余</span></div>
   </div>
   <div class="mud-cols">
     <div>
@@ -582,6 +582,7 @@ return view.extend({
 		M.set('tr-day', traffic ? M.fmtTrafficBytes(traffic.today_used) : '--');
 		M.set('tr-month', traffic ? M.fmtTrafficBytes(traffic.month_used) : '--');
 		M.set('tr-left', traffic ? (traffic.remaining == null ? M.translate('不限量') : M.fmtTrafficBytes(traffic.remaining)) : '--');
+		M.set('tr-plan', M.translate('套餐剩余') + (traffic && traffic.plan_name ? ' · ' + traffic.plan_name : ''));
 		M.v('ip').innerHTML = M.esc(w.ip4 || '--') + (w.ip6 ? '<br>' + M.esc(w.ip6) : '');
 		M.set('dns', w.dns || '--');
 		M.set('apn', w.apn || '--');

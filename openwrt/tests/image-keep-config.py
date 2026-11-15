@@ -28,8 +28,8 @@ with tempfile.TemporaryDirectory() as directory:
             'etc/bluetooth/main.conf': '[General]\nName=User Bluetooth\n',
             'etc/unisoc-modem/apn-profiles.json': 'own per-SIM APN profiles',
             'etc/tailscale/tailscaled.state': 'tailscale node state',
-            'etc/dae/config.dae': 'dae routing config',
-            'etc/daed/config.json': 'daed web config',
+            'etc/honk/config.dae': 'honk routing config',
+            'etc/honk/data/state/honk.db': 'honk state',
             'root/.ssh/authorized_keys': 'ssh-ed25519 userkey',
         }.items():
             put(old, name, text)
@@ -52,8 +52,8 @@ with tempfile.TemporaryDirectory() as directory:
         assert (new / 'etc/bluetooth/main.conf').read_text() == '[General]\nName=User Bluetooth\n'
         assert (new / 'etc/unisoc-modem/apn-profiles.json').read_text() == 'own per-SIM APN profiles'
         assert (new / 'etc/tailscale/tailscaled.state').read_text() == 'tailscale node state'
-        assert (new / 'etc/dae/config.dae').read_text() == 'dae routing config'
-        assert (new / 'etc/daed/config.json').read_text() == 'daed web config'
+        assert (new / 'etc/honk/config.dae').read_text() == 'honk routing config'
+        assert (new / 'etc/honk/data/state/honk.db').read_text() == 'honk state'
         assert (new / 'root/.ssh/authorized_keys').read_text() == 'ssh-ed25519 userkey'
         assert (new / 'etc/e5/image-version').read_text() == 'new image-version'
         assert (new / 'etc/e5/release.json').read_text() == 'new release.json'

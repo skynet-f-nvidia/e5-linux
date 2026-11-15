@@ -15,7 +15,7 @@
 | 屏幕 | ILI94887 Easyquick，DRM 模式 320×480（LK 标记 480×320），使用原机 DT 面板命令 |
 | 背光 | `sprd,qogirn6l-backlight`，GPIO 10，16 级脉冲控制，不是 E5 的 PWM |
 | 触摸 | I²C 3-002e，TLSC6x；禁止自动烧写 E5 内置触摸固件 |
-| 充电 | I²C 6-006b，原机模块名 bq2560x，REG0B=0x12；不能据模块名套用 TI/SGM 电流编码 |
+| 充电 | I²C 6-006b，已核实 REG0B=0x11、0x12 两批；按原机驱动分别编码，不能据模块名套用 TI/SGM 电流编码 |
 | Wi-Fi/BT | Marlin3 lite，使用本机 WCN 固件、板级校准、蓝牙地址及配置 |
 | 音频 | 原机 GPIO 功放 hook；移除 E5 AW87xxx 硬依赖，禁止强制解绑声卡 |
 
@@ -27,8 +27,9 @@ CDP 和未知电源沿用传入的 DT。输入寄存器为
 `100 mA + REG00[4:0] × 100 mA`，最高可设置 3.2 A，不支持写入 4 A。
 电池端恢复原厂 A6 分段编码（最高请求 3047 mA）和 4.4 V 终止电压上限，
 温控降流、输入电压动态限流及其他原厂保护保留。寄存器配置值不代表实测输入电流；
-充电器、线材、电池电量、温度及系统负载都会影响读数。PD、高压快充及 USB OTG
-尚未验证，不能用 5 V 充电适配结果推断这些功能。原机电池温度、容量表仍来自 DT。
+充电器、线材、电池电量、温度及系统负载都会影响读数。PD、高压快充
+尚未验证；OTG 及主机＋外部供电的新增批次实测见下方适配记录。
+原机电池温度、容量表仍来自 DT。
 
 原机 `bq2560x-charger.ko` 的 `set_limit_current`（0x1170）确认输入为 100 mA
 步长、3.2 A 范围。`set_current`（0x2d08）在 REG0B=0x12 分支使用：
@@ -36,6 +37,12 @@ CDP 和未知电源沿用传入的 DT。输入寄存器为
 3047 mA。原厂 getter（0x3eec）对码值大于 13 使用 57.5 mA 步长并向下取整
 到整数 mA；例如 3 A 请求写码值 52，读回 2990 mA。不能套用 TI/SGM 的 60 mA
 公式。原厂二进制只在本地分析，不放入发布包。
+
+551MCM08 原厂固件的另一批机器实测 REG0B=0x11。其原厂驱动依据低两位
+选择 A5 编码，500 mA 请求应写码值 8、读回 500 mA；不能使用上述 A6 表。
+适配记录及原厂证据见 [T551M 充电批次](../../docs/T551M-CHARGER-VARIANTS.zh-CN.md)。
+两种硬件在读取 ID 后分别选择编码，未知芯片仍不写寄存器。DCP 输入沿用匹配
+电池配置的 3 A 请求；0x11 电池端按原厂上限量化到 2875 mA。
 
 `python3 devices/t551m/test_charger.py <生成的 bq2560x-charger.c>` 在 Linux
 编译实际驱动函数并使用模拟寄存器，覆盖输入上下边界与防溢出、USB/充电器档位、
@@ -114,7 +121,7 @@ netifd、hostapd 或屏幕浏览器进程。实际帧缓冲截图显示实时 98
 T551M 的 `modem_has_been_boot()` 先检查 `/dev/sctl_pm`，因此原始 loader 会误判
 基带已启动；原 E5 冷启动辅助程序又只支持 ARM64，导致 T551M 一直退出重试。
 
-共享 `e5-modem-coldboot` 现在支持本机 ARM32/Thumb loader，SHA-256 必须为
+共享 `e5-modem-coldboot` 支持本机 ARM32/Thumb loader；当时取样文件的 SHA-256 为
 `317eb996768a1978aa6b983a0d856cee47458b3bc72fa17ff88bc97f9df52109`。
 从 `.gnu_debugdata` 符号和反汇编核对：`modem_has_been_boot` 位于 VA `0xa020`，
 `load_modem_img` 位于 `0x86b4`。只在充电启动且 CP 通道不可用时，生成临时副本：
@@ -123,7 +130,9 @@ T551M 的 `modem_has_been_boot()` 先检查 `/dev/sctl_pm`，因此原始 loader
 - 文件偏移 `0x96c0`（VA `0xa6c0`）：`movs r0,63` 改为 `movs r0,34`，仅加载 NR/CH。
 
 保留 `modem=shutdown` 判断，跳过 PM 的停止、加载和启动，原 loader 文件和原始 NV
-均不修改。未知哈希、架构或指令仍拒绝启动。正常启动及 CP 已在线时使用原 loader。
+均不修改。2026-11-02 已取消哈希白名单与固定偏移，按本机 ELF、指令、
+memcmp 的 PLT 重定位和加载掩码自动定位；正常启动及 CP 已在线时使用原 loader。
+见 [公共识别规则](../../docs/MODEM-LOADER-ABI-20261102.zh-CN.md)。
 测试：`python3 rootfs/tests/modem-coldboot.py`（两种架构共 10 项）。
 
 2026-10-08 实机验证：先在已经出现“无模组”的 charger 启动中重启厂商服务，

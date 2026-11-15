@@ -102,6 +102,7 @@ FIRMWARE=${E5_FIRMWARE:-$TOP/rootfs/overlay/lib/firmware}
 ANDROID=${E5_ANDROID_SUBSET:-$TOP/work/android-subset}
 KBUILD=${E5_KBUILD:-$TOP/out_linux}
 mkdir -p "$WORK" "$OUT"
+MODEM_LOADER_PATCH=$(python3 "$TOP/devices/common/build-modem-loader.py")
 python3 "$TOP/tools/openwrt-package-state.py" check "$VER"
 # /dev/sd* also matches Unisoc communication channels. Install only the APK
 # whose probe filters device types before opening them (shared by all boards).
@@ -109,6 +110,8 @@ BLOCK_APK="$OUT/block-mount-guarded.apk"
 E5_WRT_VER="$VER" sh "$HERE/build-block-mount.sh" "$BLOCK_APK"
 WIFI_APKS="$TOP/work/wifi-sae"
 UNISOC_WRT_VER="$VER" sh "$HERE/build-hostapd.sh" "$WIFI_APKS"
+LPAC_APKS=${UNISOC_LPAC_APKS:-$(python3 "$TOP/openwrt/lpac-state.py" --path)}
+UNISOC_WRT_VER="$VER" sh "$TOP/openwrt/build-lpac.sh" "$LPAC_APKS"
 
 # the Argon theme: not in OpenWrt's feeds; its release's packages (arch all)
 ARGON_URL=https://github.com/jerrykuku/luci-theme-argon/releases/download/v2.4.7
@@ -125,44 +128,24 @@ done
 # (only the pinned ones go in)
 EXTRA_LIST=$(printf "%s\n" "$ARGON_APKS" | awk '{print "/in/extra/" $2}' | tr '\n' ' ')
 
-# dae/daed and the Tailscale LuCI integration are published in the signed
-# OpenWrt 25.12 feed maintained alongside openwrt-daede.  Keep the key pinned
-# for the final image's upgrade source; CI pins the downloaded APK hashes below.
-DAEDE_FEED_BASE=${E5_DAEDE_FEED_BASE:-https://down.dllkids.xyz/openwrt-feed}
-DAEDE_FEED_KEY_URL="$DAEDE_FEED_BASE/keys/dllkids-feed.pub.pem"
-DAEDE_FEED_KEY_SHA256=ea9dd08b41e6b0fc7ffda166a89b2b4904ad5607bf77d82c9f7f2a54e63a8948
-DAEDE_FEED_KEY="$WORK/dllkids-feed.pub.pem"
-if [ ! -f "$DAEDE_FEED_KEY" ]; then
-    rm -f "$DAEDE_FEED_KEY.part"
-    curl -fsSL --retry 5 "$DAEDE_FEED_KEY_URL" -o "$DAEDE_FEED_KEY.part"
-    mv "$DAEDE_FEED_KEY.part" "$DAEDE_FEED_KEY"
-fi
-feed_key_hash=$(shasum -a 256 "$DAEDE_FEED_KEY" 2>/dev/null || sha256sum "$DAEDE_FEED_KEY")
-[ "${feed_key_hash%% *}" = "$DAEDE_FEED_KEY_SHA256" ] || {
-    echo "unexpected dae feed signing key" >&2; exit 1;
-}
-
-# Pin the release APKs at the host side.  The final image keeps the feed below
-# for online upgrades, while CI does not depend on apk's BusyBox wget reading
-# a large packages.adb object through the feed CDN.
-DAEDE_APKS="$WORK/daede-apks"
-mkdir -p "$DAEDE_APKS"
-DAEDE_APK_LIST="3b594c116097708bc5982256da2cc63d320c80851499b0f69b1f2c9c9c3331be dae-2026.10.30-r1.apk https://github.com/kenzok8/openwrt-daede/releases/download/v2026.10.30-6ac53cb/dae-2026.10.30-r1-aarch64_generic.apk
-1a4a09e38a5fd0e4dc7e29ad50ef84c655de31d43b7b71005a048fabd102018b daed-2026.10.30-r1.apk https://github.com/kenzok8/openwrt-daede/releases/download/v2026.10.30-6ac53cb/daed-2026.10.30-r1-aarch64_generic.apk
-761adabaf1378a188c9ee3a3c3132cd740e82793bcd10e75a15ad527191f55d8 luci-app-daede-1.15-r13.apk https://github.com/kenzok8/openwrt-daede/releases/download/v2026.10.30-6ac53cb/luci-app-daede-1.15-r13-aarch64_generic.apk
-967ef836bf459ec22c7639f5545bbe8947bedbaf4c18d864cfa2335764518f73 v2ray-geoip-202610050438-r1.apk https://down.dllkids.xyz/openwrt-feed/25.12/aarch64_cortex-a53/v2ray-geoip-202610050438-r1.apk
-9e5287d3057bf59bcb40715a9bed0b638133119fcaf9c92c32c29662a8cec86d v2ray-geosite-20261026102707-r1.apk https://down.dllkids.xyz/openwrt-feed/25.12/aarch64_cortex-a53/v2ray-geosite-20261026102707-r1.apk"
-while read -r sum name url; do
-    [ -f "$DAEDE_APKS/$name" ] || {
-        rm -f "$DAEDE_APKS/$name.part"
-        curl -fsSL --retry 5 "$url" -o "$DAEDE_APKS/$name.part"
-        mv "$DAEDE_APKS/$name.part" "$DAEDE_APKS/$name"
-    }
-    got=$(shasum -a 256 "$DAEDE_APKS/$name" 2>/dev/null || sha256sum "$DAEDE_APKS/$name")
-    [ "${got%% *}" = "$sum" ] || {
-        echo "checksum mismatch for $name" >&2; rm -f "$DAEDE_APKS/$name"; exit 1;
-    }
-done <<< "$DAEDE_APK_LIST"
+# Official honk binary and OpenWrt integration sources, pinned independently.
+# Direct staging avoids installing OpenWrt kmods built for a different kernel.
+HONK_VERSION=v0.1.0-beta.6
+HONK_COMMIT=bb039381d2ae9a84dd0c40607c00ccf9fd9fdabf
+HONK_ASSET=honk-core-$HONK_VERSION-aarch64-unknown-linux-musl-full.tar.gz
+HONK_SOURCE=openwrt-packages-$HONK_COMMIT.tar.gz
+for item in \
+    "5e4c0359950e0f19fac53e31ef9ffbe9f0aafca92331c3fa81e5b56212950a6e $HONK_ASSET https://github.com/daeuniverse/honk/releases/download/$HONK_VERSION/$HONK_ASSET" \
+    "6573520ef94805de8a2f95bf0f449392c8c46f4340f9e69ee64553ef8a85e137 $HONK_SOURCE https://codeload.github.com/daeuniverse/openwrt-packages/tar.gz/$HONK_COMMIT"; do
+    read -r sum name url <<< "$item"
+    if [ ! -f "$WORK/$name" ]; then
+        rm -f "$WORK/$name.part"
+        curl -fsSL --retry 5 "$url" -o "$WORK/$name.part"
+        mv "$WORK/$name.part" "$WORK/$name"
+    fi
+    got=$(shasum -a 256 "$WORK/$name" 2>/dev/null || sha256sum "$WORK/$name")
+    [ "${got%% *}" = "$sum" ] || { echo "checksum mismatch for $name" >&2; exit 1; }
+done
 
 ls "$OUT"/bluez-daemon-*.apk >/dev/null 2>&1 || {
     echo "no BlueZ package in $OUT -- run openwrt/build-bluez.sh first" >&2; exit 1; }
@@ -318,6 +301,7 @@ VERSION=$(python3 "$TOP/tools/release-identity.py" --profile e5 \
 
 docker run --rm --platform linux/arm64 \
     -v "$HERE/overlay":/in/overlay:ro -v "$TOP/rootfs/overlay/opt/e5":/in/opt-e5:ro \
+    -v "$MODEM_LOADER_PATCH":/in/modem-loader-patch:ro \
     -v "$WORK/release.json":/in/release.json:ro \
     -v "$TOP":/in/feature-source:ro -e E5_FEATURES="$FEATURES" -e E5_UI_CACHE=/tmp/e5-ui-cache \
     -v "$OUT":/in/apk:ro -v "$BUSYBOX":/in/busybox:ro -v "$WORK/logdw":/in/logdw:ro \
@@ -329,25 +313,20 @@ docker run --rm --platform linux/arm64 \
     -v "$BLOCK_APK":/in/block-mount-guarded.apk:ro \
     -v "$BLOCK_APK.build-id":/in/block-mount.build-id:ro \
     -v "$WIFI_APKS":/in/wifi-sae:ro \
+    -v "$LPAC_APKS":/in/lpac:ro \
+    -v "$TOP/openwrt":/in/euicc-source/openwrt:ro \
     -v "$SA":/in/sa:ro -e STANDALONE="$STANDALONE" -v "$RM":/in/root-modules:ro \
     -v "$WORK/extra":/in/extra:ro -e EXTRA_LIST="$EXTRA_LIST" -v "$TP":/in/transplant:ro \
-    -v "$DAEDE_FEED_KEY":/in/daede-feed.pub.pem:ro \
-    -v "$DAEDE_APKS":/in/daede:ro \
+    -v "$WORK/$HONK_ASSET":/in/honk-core.tar.gz:ro -v "$WORK/$HONK_SOURCE":/in/honk-source.tar.gz:ro \
     -v "$TAROUT":/out -e NAME="$NAME" -e VERSION="$VERSION" -e E5_BUILD_EPOCH="${E5_BUILD_EPOCH:-}" -e CONTAINERS="$CONTAINERS" \
-    -e DAEDE_FEED_BASE="$DAEDE_FEED_BASE" \
     e5-openwrt-base:$VER /bin/sh -euc '
 mkdir -p /var/lock /var/run /tmp
 apk update >/dev/null
-# The dae/daed APKs and geodata were downloaded and hashed on the runner.
-# Their kmod dependencies resolve against the official OpenWrt index below;
-# the final image replaces those 6.12 module files with the 6.18 archive.
-apk add --allow-untrusted /in/daede/*.apk >/dev/null
-apk add tailscale luci-app-tailscale-community wireguard-tools luci-proto-wireguard >/dev/null
+apk add tailscale luci-app-tailscale-community wireguard-tools luci-proto-wireguard \
+    v2ray-geoip v2ray-geosite jshn flock coreutils-timeout >/dev/null
 apk add --allow-untrusted /in/block-mount-guarded.apk >/dev/null
 apk add e2fsprogs resize2fs >/dev/null
-# dae/daed use CO-RE eBPF.  The release kernel carries CONFIG_DEBUG_INFO_BTF,
-# so do not install the detached vmlinux-btf package built for another kernel.
-for p in dae daed luci-app-daede tailscale luci-app-tailscale-community wireguard-tools luci-proto-wireguard v2ray-geoip v2ray-geosite; do
+for p in tailscale luci-app-tailscale-community wireguard-tools luci-proto-wireguard; do
     apk info -e "$p" >/dev/null || { echo "missing bundled package: $p" >&2; exit 1; }
 done
 # ModemManager first, from its local file (unsigned): its release is above the
@@ -367,7 +346,8 @@ apk add iwinfo iw-full ip-full bash mount-utils luci-proto-modemmanager \
 # init script (which forbids loading the modules a connecting device needs)
 apk add pulseaudio-daemon-avahi pulseaudio-tools >/dev/null
 # Reuse the tested Debian hostless FE_ST_VOICE backend for cellular audio.
-apk add python3 glib2 libjson-c5 alsa-lib rpcd-mod-ucode ucode-mod-rtnl ucode-mod-nl80211 f2fs-tools ucode-mod-fs >/dev/null
+apk add --allow-untrusted /in/lpac/lpac-2.3.0-r1001.apk >/dev/null
+apk add python3 python3-openssl glib2 libjson-c5 alsa-lib rpcd-mod-ucode ucode-mod-rtnl ucode-mod-nl80211 f2fs-tools ucode-mod-fs >/dev/null
 if [ "$CONTAINERS" = 1 ]; then
     # Do not run dockerd post-install scripts inside the build container.
     apk add --no-scripts docker dockerd iptables-nft ip6tables-nft resize2fs >/dev/null
@@ -412,15 +392,6 @@ if [ -f /in/infoscreen/packages.txt ]; then
         grep -qx "P:$p" /lib/apk/db/installed || { echo "the image has no $p: the info screen would not start" >&2; exit 1; }
     done
 fi
-# Keep the signed openwrt-daede source available for LuCI/package upgrades.
-# It is added after all build-time apk operations so a transient feed CDN error
-# cannot block assembly of the already pinned packages above.
-feed_arch=$(cat /etc/apk/arch)
-mkdir -p /etc/apk/keys /etc/apk/repositories.d
-cp /in/daede-feed.pub.pem /etc/apk/keys/dllkids-feed.pub.pem
-chmod 0644 /etc/apk/keys/dllkids-feed.pub.pem
-printf "%s/%s/packages.adb\\n" "$DAEDE_FEED_BASE" "$feed_arch" > /etc/apk/repositories.d/e5-daede.list
-echo "dae feed retained for upgrades: $DAEDE_FEED_BASE/$feed_arch"
 # (apk info <name> describes the repository'"'"'s package; the installed one is here)
 echo "modemmanager $(sed -n "/^P:modemmanager$/{n;s/^V://p}" /lib/apk/db/installed) installed"
 
@@ -444,6 +415,58 @@ printf "127.0.0.1\tlocalhost\n\n::1\tlocalhost ip6-localhost ip6-loopback\nff02:
 printf "E5\n" > $R/etc/hostname
 
 cp -a /in/overlay/. $R/
+# Preserve remote management after image replacement: the live service is enabled,
+# while the upgrader copies /etc/tailscale and UCI but not the old rc.d links.
+[ -x "$R/etc/init.d/tailscale" ] || { echo "tailscale init script missing" >&2; exit 1; }
+mkdir -p "$R/etc/rc.d"
+ln -sfn ../init.d/tailscale "$R/etc/rc.d/S80tailscale"
+# Stage the upstream binary and LuCI sources without registering fictitious APKs.
+python3 - <<PY
+from pathlib import Path
+import tarfile
+
+root = Path("/build/root")
+def put(archive, member, destination, mode=0o644):
+    info = archive.getmember(member)
+    if not info.isfile():
+        raise ValueError("not a regular file: " + member)
+    target = root / destination
+    if target.exists() or target.is_symlink():
+        raise ValueError("honk destination already exists: " + str(target))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(archive.extractfile(info).read())
+    target.chmod(mode)
+
+binary = "honk-core-v0.1.0-beta.6-aarch64-unknown-linux-musl-full/"
+with tarfile.open("/in/honk-core.tar.gz", "r:gz") as archive:
+    put(archive, binary + "honk-core", "usr/bin/honk-core", 0o755)
+    for info in archive.getmembers():
+        rel = info.name.removeprefix(binary)
+        if info.isfile() and (rel == "LICENSE" or rel.startswith(("doona/", "doona-lite/"))):
+            put(archive, info.name, "usr/share/licenses/honk/" + rel)
+
+prefix = "openwrt-packages-bb039381d2ae9a84dd0c40607c00ccf9fd9fdabf/"
+with tarfile.open("/in/honk-source.tar.gz", "r:gz") as archive:
+    for source, destination, mode in (
+        ("honk/files/honk.init", "etc/init.d/honk", 0o755),
+        ("honk/files/honk.config", "etc/config/honk", 0o644),
+        ("honk/files/config.dae", "etc/honk/config.dae", 0o600),
+    ):
+        put(archive, prefix + source, destination, mode)
+    for package in ("luci-app-honk", "luci-lib-daeuniverse"):
+        for tree, dest in (("root/", ""), ("htdocs/", "www/")):
+            base = prefix + package + "/" + tree
+            for info in archive.getmembers():
+                if info.isfile() and info.name.startswith(base):
+                    rel = info.name[len(base):]
+                    if not rel or any(part in ("", ".", "..") for part in rel.split("/")):
+                        raise ValueError("invalid source path: " + info.name)
+                    put(archive, info.name, dest + rel, 0o755 if rel.startswith("usr/libexec/") else 0o644)
+PY
+mkdir -p $R/usr/share/honk $R/lib/upgrade/keep.d
+ln -s ../v2ray/geoip.dat $R/usr/share/honk/geoip.dat
+ln -s ../v2ray/geosite.dat $R/usr/share/honk/geosite.dat
+printf "/etc/honk/\n" > $R/lib/upgrade/keep.d/honk
 chmod 0755 $R/etc/uci-defaults/95-disable-ap-uapsd
 if [ "$CONTAINERS" = 1 ]; then
     python3 $R/usr/libexec/e5-container-setup --root $R
@@ -464,6 +487,8 @@ fi
 for f in vendor-start.sh android-import-perms.sh e5-modem-coldboot android-run node-perms.sh regdb-load.sh gadget-guard.sh usb-watch.sh e5-next-boot e5-os e5-sd-registry e5-at e5-data-priority e5-audio-dsp e5-call-audio.py; do
     cp /in/opt-e5/$f $R/opt/e5/$f; chmod 755 $R/opt/e5/$f
 done
+cp /in/modem-loader-patch $R/opt/e5/modem-loader-patch
+chmod 755 $R/opt/e5/modem-loader-patch
 cp /in/logdw $R/opt/e5/bin/logdw && chmod 755 $R/opt/e5/bin/logdw
 cp /in/e5-vibrate $R/usr/bin/e5-vibrate && chmod 755 $R/usr/bin/e5-vibrate
 cp /in/e5-ctl-raw $R/opt/e5/e5-ctl-raw && chmod 755 $R/opt/e5/e5-ctl-raw
@@ -540,6 +565,7 @@ if [ "$E5_FEATURES" = 1 ]; then
 fi
 if [ -f $R/usr/libexec/unisoc-modem/disable-channel-analysis ]; then
     ucode $R/usr/libexec/unisoc-modem/disable-channel-analysis $R
+    ucode $R/usr/libexec/unisoc-modem/limit-wifi-widths $R
 fi
 mkdir -p $R/usr/libexec/unisoc-modem
 cp /in/feature-source/openwrt/luci-app-t551m/root/usr/libexec/unisoc-modem/hotspot.uc $R/usr/libexec/unisoc-modem/hotspot.uc
@@ -568,8 +594,11 @@ for srcdir, dest in [("root", root), ("htdocs", root / "www"), ("lmo", root / "u
         if srcdir == "root" and rel.as_posix() == "etc/config/unisoc_apn":
             target.chmod(0o600)
 PY
+python3 /in/feature-source/tools/stage-flow-offload.py --root $R
+python3 /in/feature-source/tools/stage-ra-renew.py --root $R
 python3 /in/feature-source/installer/stage-ota.py --root $R
 python3 /in/feature-source/tools/release-ui-policy.py --root $R
+python3 /in/euicc-source/openwrt/stage-lpac.py --root $R --artifacts /in/lpac
 cd $R && tar -czf /out/$NAME .
 ls -la /out/$NAME
 '

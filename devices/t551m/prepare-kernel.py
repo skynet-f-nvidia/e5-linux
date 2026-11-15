@@ -28,9 +28,8 @@ def replace_function(source, name, body):
 
 
 def board_charger(source):
-    # This unit reports REG0B=0x12. Its stock driver (dumped for inspection,
-    # never redistributed) uses the A6 piecewise current encoding. Do not use
-    # the upstream TI/SGM 60 mA encoding for this board.
+    # Shared A6 port, also used as the base by M8/K1/41S adapters.
+    # T551M batch selection is applied separately after this shared port.
     source = source.replace('.name\t\t\t= "charger",', '.name\t\t\t= "bq2560x_charger",')
     source = source.replace('#define BQ2560X_REG_NUM\t\t\t\t0x10', '#define BQ2560X_REG_NUM\t\t\t\t0x0c')
     source = source.replace('val->intval = info->chip_type;',
@@ -124,11 +123,42 @@ def board_charger(source):
     return source
 
 
+def board_charger_variants(source):
+    """T551M-only A5/A6 codecs; never broaden another board's silicon gate."""
+    source = source.replace('struct bq2560x_charger_info {',
+                            '#include "t551m-charger-variants.h"\n\n'
+                            'struct bq2560x_charger_info {\n\tu8 stock_id;', 1)
+    source = replace_function(source, 'bq2560x_charger_set_current', '''
+\tu8 code = t551m_charge_code(info->stock_id, cur / 1000);
+\treturn bq2560x_update_bits(info, BQ2560X_REG_2,
+\t\tBQ2560X_REG_ICHG_MASK, code);''')
+    source = replace_function(source, 'bq2560x_charger_get_current', '''
+\tu8 value;
+\tint ret = bq2560x_read(info, BQ2560X_REG_2, &value);
+\tif (ret < 0) return ret;
+\tvalue &= BQ2560X_REG_ICHG_MASK;
+\t/* Preserve the matching stock revision's integer-mA rounding. */
+\t*cur = t551m_charge_ma(info->stock_id, value) * 1000;
+\treturn 0;''')
+    old = '\tif (val != 0x12 || client->addr != 0x6b) {'
+    name = ('\tstrscpy(info->charge_ic_vendor_name, "T551M-0x12",\n'
+            '\t\tsizeof(info->charge_ic_vendor_name));')
+    if source.count(old) != 1 or source.count(name) != 1:
+        raise ValueError('T551M stock charger identification anchor changed')
+    source = source.replace(old, '\tif (!t551m_charger_supported(client->addr, val)) {')
+    return source.replace(name, '''\tinfo->stock_id = val;
+\tsnprintf(info->charge_ic_vendor_name, sizeof(info->charge_ic_vendor_name),
+\t\t "T551M-0x%02x", val);
+\tdev_info(dev, "T551M charger REG0B=%#x at %#x\\n", val, client->addr);''')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('kernel', type=Path)
     ap.add_argument('--preserve-board-current', action='store_true',
                     help='Reuse the driver port without T551M DCP table changes')
+    ap.add_argument('--base-charger-port', action='store_true',
+                    help='A recipient model supplies its own silicon/current adaptation')
     ap.add_argument('--host-sink', action='store_true',
                     help='Enable tested MUSB external-power host policy for this profile')
     args = ap.parse_args()
@@ -168,7 +198,12 @@ def main():
                         'charger_cfg.fwnode = dev_fwnode(dev);')
     text = text.replace('GPIOF_DIR_IN', 'GPIOF_IN')
     text = board_charger(text)
+    if not args.base_charger_port:
+        text = board_charger_variants(text)
     (k / 'drivers/power/supply/bq2560x-charger.c').write_text(text)
+    if not args.base_charger_port:
+        (k / 'drivers/power/supply/t551m-charger-variants.h').write_bytes(
+            Path(__file__).with_name('charger-variants.h').read_bytes())
     additions = {
         'drivers/power/supply/Kconfig': '\nconfig CHARGER_BQ2560X_SPRD\n\ttristate "Unisoc BQ2560x charger (T551M)"\n\tdepends on I2C && CHARGER_MANAGER && GPIOLIB\n',
         'drivers/power/supply/Makefile': '\nobj-$(CONFIG_CHARGER_BQ2560X_SPRD) += bq2560x-charger.o\n',

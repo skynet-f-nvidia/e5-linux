@@ -21,7 +21,8 @@ Windows/固件在本机完成；Apple Silicon App 可按用户授权使用上游
 | 通用临时文件 | 工作区 `tmp/e5-release-*`，每步结束自动删除；不创建日期命名源码/root 缓存 |
 | 任务日志、状态 | 仓库 `out/build-logs/<task>/`，最近任务 `out/build-state/latest.json` |
 | 正式产物 | 仓库 `out/releases/<task>/`，全部机型校验通过才成为正式目录 |
-| Windows/macOS 安装器 | `installer/artifacts/windows`、`installer/artifacts/macos-arm64` |
+| 版本固定的安装器缓存 | `{workspace}/artifacts/openwrt-tools/<installer_commit 前7位>/{windows,macos-arm64,android}` |
+| 本机原生编译输出 | `installer/artifacts/windows`、`installer/artifacts/macos-arm64`、`installer/artifacts/android`；通过既有环境变量显式选择 |
 | 排查资料、设备备份 | 仍在既有 `work/`、`dumps/`，不参与自动清理 |
 
 `tools/build-layout.json` 是受版本控制的路径登记表，支持 `{repo}` 与 `{workspace}`。
@@ -36,6 +37,28 @@ Windows/固件在本机完成；Apple Silicon App 可按用户授权使用上游
 `~/openwrt-build`；使用 root/sudo 时明确指定 `--workspace /home/kano/openwrt-build`。
 
 ### 1. 只看计划和验证输入
+
+安装器版本和三平台归档摘要由 `tools/installer-inputs.lock.json` 固定，
+缓存路径由 `tools/build-layout.json` 的 `{installer_revision}` 自动展开。
+它与 Pro 使用同一公共安装器及共享缓存，不复制 SDK、源码或根文件系统。
+首次准备预编译工具：
+
+```sh
+python3 tools/build-release.py prepare-installers --workspace /home/kano/openwrt-build --label installer-inputs
+```
+
+此操作仅下载／校验锁定的工具，不编译固件、不连接设备。`plan`／`check` 保持只读。
+安装器子模块提交、归档版本、文件摘要或源码指纹不一致时停止；不会回退旧缓存。
+`OPENWRT_GUI_ARTIFACT`、`OPENWRT_GUI_MACOS_ARTIFACT` 和
+`OPENWRT_GUI_ANDROID_ARTIFACT` 仍可显式选择本机产物，且必须通过同样的源码／文件校验。
+发布器会将选定路径传给组包及安装器刷新子进程。
+
+维护者更新安装器输入时，先提交共享安装器并更新版本锁的提交及 URL；
+各平台原生重编后，显式选择已验证的产物，在受锁入口中运行
+`python3 tools/build-installer-inputs.py`。它在
+`{workspace}/cache/openwrt-tools-publish/<前7位>/` 生成工具归档和摘要，
+不含固件根、NV 或签名密钥。发布后填写真实摘要，再用 `prepare-installers`
+从公开链接重新验证；不能通过手改产物指纹接受旧二进制。
 
 ```sh
 python3 tools/build-release.py plan --profiles all

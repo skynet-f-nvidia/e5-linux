@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "installer_commit": "ab2f30c6301d0a4d7f734fd59a50d190c2a2a01f",
+  "assets": {
+    "installer_windows": {
+      "url": "https://github.com/kanoqwq/openwrt-tools/releases/download/build-tools-ab2f30c/installer-windows-x64-ab2f30c.tar.gz",
+      "sha256": "407a81783272a3e4174effb2784c1227a1fa8a8c7f389f6eaba0b298ea23cbdb"
+    },
+    "installer_macos": {
+      "url": "https://github.com/kanoqwq/openwrt-tools/releases/download/build-tools-ab2f30c/installer-macos-arm64-ab2f30c.tar.gz",
+      "sha256": "83fbabac6f6baea8792eff2745c7e1e1491966ebebac280d4fff50dad3ddc128"
+    },
+    "installer_android": {
+      "url": "https://github.com/kanoqwq/openwrt-tools/releases/download/build-tools-ab2f30c/installer-android-aarch64-ab2f30c.tar.gz",
+      "sha256": "44d23a0b349021dced7d98a46d6a8e0dc2a379c76088c10c34e063fb578d7d3d"
+    }
+  }
+}
