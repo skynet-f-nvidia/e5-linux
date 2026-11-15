@@ -84,23 +84,107 @@ fi
 echo "== checking the image for device files"
 S0=$(mktemp -d)
 trap 'rm -rf "$S0"' EXIT
-image_files() {
-    if [ -n "${E5_IMAGE_FROM:-}" ]; then
-        # (the image itself: there is no rootfs tarball of it here)
-        local d; d=$(mktemp -d)
-        gzip -dc "$IMG" > "$d/img"
-        mkdir "$d/r" && debugfs -R "rdump / $d/r" "$d/img" >/dev/null 2>&1
-        (cd "$d/r" && find . | sed 's|^\./||')
-        rm -rf "$d"
-    else
-        tar -tzf "$WORK/e5-openwrt-$VER-generic-rootfs.tar.gz"
-    fi
-}
-image_files > "$S0/files"
-grep -qx 'sbin/init' "$S0/files" || grep -qx './sbin/init' "$S0/files" || { echo "no listing of the image" >&2; exit 1; }
-bad=$(cat "$S0/files" |
-      grep -E 'lib/firmware/(wcnmodem|gnssmodem|l_agdsp|wifi_board|sprd/)|opt/e5/android/.|etc/e5/install\.conf|mnt/vendor/.|attendedsysupgrade' || true)
-[ -z "$bad" ] || { echo "the generic image carries what it must not (device files, attended sysupgrade):" >&2; echo "$bad" | head >&2; exit 1; }
+if [ -n "${E5_IMAGE_FROM:-}" ]; then
+    # The supplied image has no rootfs tarball; inspect its extracted tree.
+    gzip -dc "$IMG" > "$S0/img"
+    mkdir "$S0/root"
+    debugfs -R "rdump / $S0/root" "$S0/img" >/dev/null 2>&1
+    image_source="$S0/root"
+else
+    image_source="$WORK/e5-openwrt-$VER-generic-rootfs.tar.gz"
+fi
+python3 - "$image_source" <<'PY'
+import os
+import re
+import shlex
+import stat
+import sys
+import tarfile
+
+source = sys.argv[1]
+if os.path.isdir(source):
+    def walk_error(error):
+        raise error
+
+    def entries():
+        for root, dirs, files in os.walk(source, followlinks=False, onerror=walk_error):
+            for name in dirs + files:
+                path = os.path.join(root, name)
+                mode = os.lstat(path).st_mode
+                name = os.path.relpath(path, source).replace(os.sep, '/')
+                data = None
+                if name == 'etc/config/attendedsysupgrade' and stat.S_ISREG(mode) and not mode & 0o111:
+                    with open(path, 'rb') as f:
+                        data = f.read(1024 * 1024 + 1)
+                yield name, mode, data
+else:
+    def entries():
+        with tarfile.open(source, 'r:gz') as archive:
+            for member in archive:
+                mode = member.mode | (stat.S_IFREG if member.isfile() else 0)
+                data = None
+                if member.name in ('etc/config/attendedsysupgrade', './etc/config/attendedsysupgrade') and member.isfile() and not mode & 0o111:
+                    with archive.extractfile(member) as f:
+                        data = f.read(1024 * 1024 + 1)
+                # tar -t prints a trailing slash for directories.
+                yield member.name + ('/' if member.isdir() else ''), mode, data
+
+def disabled_config(data):
+    # Accept ordinary UCI directives only, failing closed on ambiguous input.
+    if data is None or len(data) > 1024 * 1024:
+        return False
+    section = None
+    clients = 0
+    values = []
+    identifier = re.compile(r'^[A-Za-z0-9_]+$')
+    try:
+        for line in data.decode('utf-8').splitlines():
+            fields = shlex.split(line, comments=True)
+            if not fields:
+                continue
+            if fields[0] == 'config' and len(fields) in (2, 3):
+                if not all(identifier.fullmatch(s) for s in fields[1:]):
+                    return False
+                section = fields[2] if len(fields) == 3 else ''
+                if section == 'client':
+                    clients += 1
+                    if fields[1] != 'client':
+                        return False
+            elif fields[0] in ('option', 'list') and len(fields) == 3 and section is not None:
+                if not identifier.fullmatch(fields[1]):
+                    return False
+                if section == 'client' and fields[1] == 'login_check_for_upgrades':
+                    values.append((fields[0], fields[2]))
+            else:
+                return False
+    except (UnicodeDecodeError, ValueError):
+        return False
+    return clients == 1 and values == [('option', '0')]
+
+
+forbidden = re.compile(r'lib/firmware/(wcnmodem|gnssmodem|l_agdsp|wifi_board|sprd/)|opt/e5/android/.|etc/e5/install\.conf|mnt/vendor/.')
+config = ('etc/config/attendedsysupgrade', './etc/config/attendedsysupgrade')
+found_init = False
+config_count = 0
+bad = []
+for name, mode, data in entries():
+    found_init |= name in ('sbin/init', './sbin/init')
+    is_config = name in config
+    if is_config:
+        config_count += 1
+    if forbidden.search(name) or ('attendedsysupgrade' in name and not (
+            is_config and stat.S_ISREG(mode) and not mode & 0o111 and disabled_config(data))):
+        bad.append(name)
+if not found_init:
+    sys.exit('no listing of the image')
+if config_count > 1:
+    bad.append('duplicate etc/config/attendedsysupgrade')
+if bad:
+    print('the generic image carries what it must not (device files, attended sysupgrade):', file=sys.stderr)
+    for name in bad[:10]:
+        print(repr(name), file=sys.stderr)
+    sys.exit(1)
+PY
 
 echo "== boot image without the overlay"
 BOOT="$TOP/work/boot-linux-slotb-bundle"
