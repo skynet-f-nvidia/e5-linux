@@ -197,6 +197,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--package', type=Path, required=True)
     p.add_argument('--host', required=True)
+    p.add_argument('--identity-file', help='SSH private key file for CLI authentication')
     p.add_argument('--raw-size', type=int, required=True)
     p.add_argument('--raw-sha256', required=True)
     p.add_argument('--check-only', action='store_true', help='validate the connected device without staging or flashing')
@@ -210,7 +211,8 @@ def main():
     if GUI:
         GUI.connect_ssh(client,a.host,GUI.password)
     else:
-        client.connect(a.host, username='root', password=os.environ['E5_TELNET_PASS'],
+        auth = {'key_filename': a.identity_file} if a.identity_file is not None else {'password': os.environ['E5_TELNET_PASS']}
+        client.connect(a.host, username='root', **auth,
                        look_for_keys=False, allow_agent=False, timeout=30, banner_timeout=60, auth_timeout=60)
         client.get_transport().set_keepalive(15)
     if GUI: GUI.validate_ssh(client)

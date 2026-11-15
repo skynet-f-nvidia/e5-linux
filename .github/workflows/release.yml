@@ -147,6 +147,7 @@ jobs:
           python3 rootfs/tests/voice-state.py
           python3 rootfs/tests/modem-coldboot.py
           python3 tools/tests/ci-release.py
+          python3 tools/tests/test_update_authentication.py
           python3 tools/tests/openwrt-package-state.py
           python3 ci/infoscreen-plugins/tools/check.py
           # ci/infoscreen mock tests are sensitive to upstream changes; bypass mock checks during kernel release
